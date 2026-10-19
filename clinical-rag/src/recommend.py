@@ -77,6 +77,10 @@ def _validate_output(response: RecommendationResponse, cards: dict[str, Card]) -
             "Recommendation JSON must contain recommendations or missing_info"
         )
     for item in items:
+        if not item.evidence:
+            raise RecommendationError(
+                "Every recommendation must contain at least one evidence reference"
+            )
         for reference in item.evidence:
             card = cards.get(reference.card_id)
             if card is None:
@@ -108,7 +112,7 @@ def _validate_output(response: RecommendationResponse, cards: dict[str, Card]) -
                         )
 
 
-def _prompt(patient: dict[str, Any], evidence: list[dict[str, Any]], mode: str) -> str:
+def _prompt(patient: dict[str, Any], evidence: list[dict[str, Any]]) -> str:
     patient_context = {
         field: patient.get(field)
         for field in (*QUERY_FIELDS, "medicines", "allergies")
@@ -119,7 +123,7 @@ def _prompt(patient: dict[str, Any], evidence: list[dict[str, Any]], mode: str) 
         "never invent medication fields or doses. Every recommendation needs a "
         "source-supported reason and evidence references with card_id and pdf_page. "
         "List missing clinical information honestly. "
-        f"Mode: {mode}. Patient context: {json.dumps(patient_context, sort_keys=True)}. "
+        f"Patient context: {json.dumps(patient_context, sort_keys=True)}. "
         f"Evidence: {json.dumps(evidence, default=str, sort_keys=True)}. "
         "Required top-level keys: probable_diagnosis, investigations, medication, "
         "advice, missing_info."
@@ -160,6 +164,8 @@ def recommend(
             "disease": card.disease,
             "category": card.category,
             "action": card.action,
+            "conditions": _dump(card.conditions),
+            "exclusions_or_missing_info": card.exclusions_or_missing_info,
             "medication": _dump(card.medication) if card.medication else None,
             "source": _dump(card.source),
             "evidence": [_dump(item) for item in card.evidence],
@@ -176,7 +182,7 @@ def recommend(
             missing_info=["All retrieved cards were not applicable."]
         ))
     try:
-        response = _parse_response(llm_generate(_prompt(patient, evidence, mode)))
+        response = _parse_response(llm_generate(_prompt(patient, evidence)))
     except LLMError as exc:
         raise RecommendationError(str(exc)) from exc
     _validate_output(response, cards)

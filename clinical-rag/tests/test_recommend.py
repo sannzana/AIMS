@@ -113,6 +113,82 @@ def test_improved_filters_not_applicable_and_keeps_unknown_annotated():
     assert result["mode"] == "improved"
 
 
+def test_prompt_contains_full_conditions_and_exclusions():
+    card = Card(
+        card_id="DEV-CONDITIONS",
+        disease="synthetic",
+        category="advice",
+        conditions={
+            "all": [{"field": "age", "op": ">=", "value": 18}],
+            "any": [{"field": "symptoms", "op": "has", "value": "placeholder"}],
+            "exceptions": [{"field": "allergies", "op": "has", "value": "placeholder"}],
+            "required_inputs": ["history"],
+        },
+        exclusions_or_missing_info="DEV ONLY missing history.",
+        source={"title": "DEV", "pdf_pages": [3]},
+        evidence=[{"pdf_page": 3, "passage": "DEV"}],
+    )
+    captured = {}
+
+    def mock_llm(prompt):
+        captured["prompt"] = prompt
+        return valid_json("DEV-CONDITIONS")
+
+    recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved("DEV-CONDITIONS"),
+        llm_generate=mock_llm,
+        cards={card.card_id: card},
+    )
+    assert '"conditions"' in captured["prompt"]
+    assert '"required_inputs": ["history"]' in captured["prompt"]
+    assert "DEV ONLY missing history." in captured["prompt"]
+
+
+def test_baseline_and_improved_use_same_generation_instructions():
+    card = make_card()
+    prompts = []
+
+    def mock_llm(prompt):
+        prompts.append(prompt)
+        return valid_json()
+
+    retrieve_fn = lambda **kwargs: retrieved()
+    recommend(
+        {},
+        retrieve_fn=retrieve_fn,
+        llm_generate=mock_llm,
+        cards={card.card_id: card},
+        persist_dir=Path("data/dev_index"),
+    )
+    recommend(
+        {},
+        mode="improved",
+        retrieve_fn=retrieve_fn,
+        llm_generate=mock_llm,
+        cards={card.card_id: card},
+        persist_dir=Path("data/dev_index"),
+    )
+    for prompt in prompts:
+        assert "Mode:" not in prompt
+    assert prompts[0].split("Patient context:", 1)[0] == prompts[1].split(
+        "Patient context:", 1
+    )[0]
+
+
+def test_recommendation_without_evidence_is_rejected():
+    card = make_card()
+    raw = json.loads(valid_json())
+    raw["probable_diagnosis"][0]["evidence"] = []
+    with pytest.raises(RecommendationError, match="at least one evidence"):
+        recommend(
+            {},
+            retrieve_fn=lambda **kwargs: retrieved(),
+            llm_generate=lambda prompt: json.dumps(raw),
+            cards={card.card_id: card},
+        )
+
+
 @pytest.mark.parametrize(
     "raw",
     [
