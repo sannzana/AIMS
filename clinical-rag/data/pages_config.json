@@ -1,0 +1,11 @@
+{
+  "description": "Assigned source-page manifest. Page numbers are original PDF positions; cover pages count as page 1.",
+  "expected_unique_page_count": 45,
+  "assignments": [
+    {"protocol": "dengue", "pdf": "dengue.pdf", "ranges": [[1, 12]]},
+    {"protocol": "hypertension", "pdf": "hypertension.pdf", "pages": [64]},
+    {"protocol": "hypertension", "pdf": "hypertension.pdf", "ranges": [[65, 76]]},
+    {"protocol": "cholera", "pdf": "cholera.pdf", "ranges": [[1, 10]]},
+    {"protocol": "chikungunya", "pdf": "chikungunya.pdf", "ranges": [[1, 10]]}
+  ]
+}
