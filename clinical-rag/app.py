@@ -16,7 +16,7 @@ if str(SRC) not in sys.path:
 
 from applicability import card_rule_applicability
 from build_index import load_cards
-from recommend import RecommendationError, recommend, recommend_section
+from recommend import RecommendationError, recommend, recommend_section, recommend_management
 from retrieve import retrieve
 from schema import Card
 from validate_cards import validate_cards
@@ -278,38 +278,31 @@ def main() -> None:
 
     if st.session_state.get("case_management_requested"):
         if "Management" not in st.session_state["case_results"]:
-            result = {}
             diseases = st.session_state.get("case_diseases") or None
-            for section in ("Investigations", "Treatment", "Advice"):
-                try:
-                    with st.spinner(f"Reviewing {section.lower()} guidelines..."):
-                        result[section] = recommend_section(
-                            patient, section, mode=st.session_state.get("case_mode", "improved"),
-                            cards=cards, persist_dir=INDEX_PATH, diseases=diseases)
-                except (RecommendationError, ImportError, OSError, RuntimeError, ValueError) as exc:
-                    result[section] = {"notice": str(exc), "evidence_card_ids": [],
-                                       "investigations": [], "medication": [], "advice": []}
-            st.session_state["case_results"]["Management"] = result
+            with st.spinner("Generating evidence-grounded management plan..."):
+                st.session_state["case_results"]["Management"] = recommend_management(
+                    patient, mode=st.session_state.get("case_mode", "improved"),
+                    cards=cards, persist_dir=INDEX_PATH, diseases=diseases)
+        output = st.session_state["case_results"]["Management"]
         st.subheader("Treatment & Management Plan")
+        if output.get("notice"):
+            st.warning(output["notice"])
         for section, key in (("Investigations", "investigations"), ("Treatment", "medication"), ("Advice", "advice")):
-            output = st.session_state["case_results"]["Management"][section]
             st.markdown(f"### {section}")
-            if output.get("notice"):
-                st.warning(output["notice"])
             items = output.get(key, [])
             if not items:
-                st.info("No evidence-validated recommendation returned for this section; clinician review required.")
+                st.info("No validated recommendation available for this section; clinician review required.")
             for item in items:
                 _render_recommendation_item(st, item)
                 if key == "medication":
                     details = {x: item[x] for x in ("name", "dose", "route", "frequency", "duration", "instructions") if item.get(x)}
                     if details:
                         st.json(details)
-            with st.expander(f"{section}: source cards"):
-                for cid in output.get("evidence_card_ids", []):
-                    card = cards.get(cid)
-                    if card:
-                        st.write(f"{cid} — {getattr(card, 'card_title', '')} ({card.disease_protocol}), pages {card.pdf_page_numbers}")
+        with st.expander("Management: source cards"):
+            for cid in output.get("evidence_card_ids", []):
+                card = cards.get(cid)
+                if card:
+                    st.write(f"{cid} — {getattr(card, 'card_title', '')} ({card.disease_protocol}), pages {card.pdf_page_numbers}")
     st.caption("Educational prototype only; all recommendations need qualified clinical review.")
 
 
