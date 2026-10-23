@@ -4,7 +4,12 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from app import applicability_for, patient_from_inputs
+from app import (
+    _render_recommendations,
+    applicability_for,
+    patient_from_inputs,
+    recommendation_for_patient,
+)
 from schema import Card
 
 
@@ -60,3 +65,70 @@ def test_structured_rules_are_evaluated_without_filtering_the_card() -> None:
     result = applicability_for(card, {"measurements": {"sbp": 150}})
     assert result is not None
     assert result["status"] == "applicable"
+
+
+def test_recommendation_adapter_passes_selected_mode_and_patient_to_engine() -> None:
+    captured = {}
+    cards = {}
+    patient = {"symptoms": "fever"}
+
+    def mock_recommend(patient_arg, **kwargs):
+        captured["patient"] = patient_arg
+        captured.update(kwargs)
+        return {
+            "mode": kwargs["mode"],
+            "probable_diagnosis": [],
+            "investigations": [],
+            "medication": [],
+            "advice": [],
+            "missing_info": ["history"],
+        }
+
+    result = recommendation_for_patient(
+        patient,
+        "improved",
+        7,
+        cards,
+        recommend_fn=mock_recommend,
+    )
+
+    assert result["mode"] == "improved"
+    assert captured["patient"] == patient
+    assert captured["mode"] == "improved"
+    assert captured["top_k"] == 7
+    assert captured["cards"] is cards
+
+
+def test_recommendation_renderer_shows_sections_citations_and_missing_info() -> None:
+    class FakeStreamlit:
+        def __init__(self):
+            self.calls = []
+
+        def __getattr__(self, name):
+            def record(*args, **kwargs):
+                self.calls.append((name, args, kwargs))
+
+            return record
+
+    st = FakeStreamlit()
+    _render_recommendations(
+        st,
+        {
+            "probable_diagnosis": [
+                {
+                    "text": "Probable dengue",
+                    "reason": "Fever pattern",
+                    "evidence": [{"card_id": "DEN-1", "pdf_page": 12}],
+                }
+            ],
+            "investigations": [],
+            "medication": [],
+            "advice": [],
+            "missing_info": ["Platelet count"],
+        },
+    )
+
+    rendered = [args[0] for name, args, _ in st.calls if name in {"markdown", "write", "warning"}]
+    assert any("Probable dengue" in text for text in rendered)
+    assert any("DEN-1" in text and "PDF page 12" in text for text in rendered)
+    assert "Platelet count" in rendered

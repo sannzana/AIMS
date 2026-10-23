@@ -62,6 +62,31 @@ def _embedding_values(values: Any) -> Any:
     return values.tolist() if hasattr(values, "tolist") else values
 
 
+def _safety_metadata(card: Card) -> tuple[bool, str]:
+    fields = (
+        "exceptions_contraindications",
+        "exclusions_or_missing_information",
+        "recommended_action",
+        "additional_information",
+    )
+    text = " ".join(_readable(card.model_dump().get(field)) for field in fields)
+    markers = (
+        "contraindicat",
+        "warning",
+        "precaution",
+        "avoid",
+        "not use",
+        "risk",
+        "hemorrhage",
+        "bleeding",
+        "until dengue has been ruled out",
+        "exception",
+        "urgent",
+        "referral",
+    )
+    return any(marker in text.lower() for marker in markers), text
+
+
 def build_index(
     cards_path: Path,
     persist_dir: Path,
@@ -125,6 +150,8 @@ def build_index(
                 "source_pdf_pages": json.dumps(card.pdf_page_numbers),
                 "verified": str(card.verified).lower(),
                 "dev_only": str(dev).lower(),
+                "safety_critical": str(_safety_metadata(card)[0]).lower(),
+                "safety_text": _safety_metadata(card)[1],
             }
             for card in cards
         ],

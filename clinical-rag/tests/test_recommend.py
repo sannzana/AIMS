@@ -3,8 +3,15 @@ from pathlib import Path
 
 import pytest
 
+import llm
 from llm import LLMError, generate
-from recommend import RecommendationError, recommend
+from recommend import (
+    MalformedRecommendationError,
+    RecommendationError,
+    RecommendationSchemaError,
+    UnsupportedEvidenceError,
+    recommend,
+)
 from schema import Card
 
 
@@ -54,6 +61,8 @@ def test_baseline_retrieval_and_generation_and_same_retrieval_for_improved():
 
     def mock_llm(prompt):
         assert "symptoms" in prompt
+        assert "clinical_findings" in prompt
+        assert "measurements" in prompt
         assert "medicines" in prompt
         assert "allergies" in prompt
         return valid_json()
@@ -76,6 +85,7 @@ def test_baseline_retrieval_and_generation_and_same_retrieval_for_improved():
     assert baseline["mode"] == "baseline"
     assert improved["mode"] == "improved"
     assert [call[1] for call in calls] == [5, 5]
+    assert baseline["retrieval_summary"] == improved["retrieval_summary"]
     assert baseline["dev_only"] is True
 
 
@@ -145,6 +155,139 @@ def test_prompt_contains_full_conditions_and_exclusions():
     assert "DEV ONLY missing history." in captured["prompt"]
 
 
+def test_prompt_specifies_complete_output_schema_and_retrieved_references():
+    card = make_card()
+    captured = {}
+
+    def mock_llm(prompt):
+        captured["prompt"] = prompt
+        return valid_json()
+
+    recommend(
+        {"clinical_findings": "alert", "measurements": "BP 120/80"},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=mock_llm,
+        cards={card.card_id: card},
+    )
+    prompt = captured["prompt"]
+    assert "probable_diagnosis" in prompt
+    assert '"text": "string"' in prompt
+    assert '"reason": "string"' in prompt
+    assert '"evidence"' in prompt
+    assert '"missing_info": ["string"]' in prompt
+    assert "DEV-001" in prompt
+    assert "clinical_findings" in prompt
+    assert "measurements" in prompt
+
+
+def test_medication_schema_requires_text_reason_and_evidence():
+    card = make_card()
+    raw = json.loads(valid_json())
+    raw["medication"] = [
+        {
+            "reason": "Supported by the supplied evidence.",
+            "evidence": [{"card_id": card.card_id, "pdf_page": 3}],
+        }
+    ]
+    result = recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=lambda prompt: json.dumps(raw),
+        cards={card.card_id: card},
+    )
+    assert result["medication"] == []
+    assert "medication.0.text (missing)" in result["rejected_recommendations"]
+
+
+def test_valid_medication_output_has_traceable_source_passage():
+    card = make_card(
+        medication={
+            "name": "DEV medicine",
+            "dose": "one unit",
+            "route": "oral",
+            "frequency": "once",
+            "duration": "one day",
+            "instructions": "DEV instruction",
+        }
+    )
+    raw = json.loads(valid_json())
+    raw["medication"] = [
+        {
+            "text": "Use DEV medicine.",
+            "reason": "The supplied card supports this.",
+            "evidence": [{"card_id": card.card_id, "pdf_page": 3}],
+            "name": "DEV medicine",
+            "dose": "one unit",
+            "route": "oral",
+            "frequency": "once",
+            "duration": "one day",
+            "instructions": "DEV instruction",
+        }
+    ]
+    result = recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=lambda prompt: json.dumps(raw),
+        cards={card.card_id: card},
+    )
+    assert result["medication"][0]["evidence_details"][0]["passages"] == [
+        "DEV ONLY placeholder evidence."
+    ]
+
+
+def test_nested_source_medication_values_are_supported_exactly():
+    card = make_card()
+    card.medication_details = {
+        "paracetamol": {
+            "adult_dose": "Up to 1000 mg four times daily",
+            "route": "Oral",
+        }
+    }
+    raw = json.loads(valid_json())
+    raw["medication"] = [
+        {
+            "text": "Use paracetamol.",
+            "reason": "The source provides this medication guidance.",
+            "evidence": [{"card_id": card.card_id, "pdf_page": 3}],
+            "name": "paracetamol",
+            "dose": "Up to 1000 mg four times daily",
+        }
+    ]
+    result = recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=lambda prompt: json.dumps(raw),
+        cards={card.card_id: card},
+    )
+    assert result["medication"][0]["name"] == "paracetamol"
+
+
+def test_invalid_medication_does_not_hide_valid_diagnosis():
+    card = make_card()
+    raw = json.loads(valid_json())
+    raw["medication"] = [
+        {
+            "text": "Use unsupported medicine.",
+            "reason": "Not supported by the card.",
+            "evidence": [{"card_id": card.card_id, "pdf_page": 3}],
+            "name": "unsupported medicine",
+        }
+    ]
+    result = recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=lambda prompt: json.dumps(raw),
+        cards={card.card_id: card},
+    )
+    assert result["probable_diagnosis"][0]["text"] == "Probable synthetic condition"
+    assert result["medication"] == []
+    assert result["incomplete_output"] is True
+    assert any(
+        "medication.0: unsupported medication field name" in item
+        for item in result["rejected_recommendations"]
+    )
+
+
 def test_baseline_and_improved_use_same_generation_instructions():
     card = make_card()
     prompts = []
@@ -180,13 +323,48 @@ def test_recommendation_without_evidence_is_rejected():
     card = make_card()
     raw = json.loads(valid_json())
     raw["probable_diagnosis"][0]["evidence"] = []
-    with pytest.raises(RecommendationError, match="at least one evidence"):
-        recommend(
-            {},
-            retrieve_fn=lambda **kwargs: retrieved(),
-            llm_generate=lambda prompt: json.dumps(raw),
-            cards={card.card_id: card},
-        )
+    result = recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=lambda prompt: json.dumps(raw),
+        cards={card.card_id: card},
+    )
+    assert result["probable_diagnosis"] == []
+    assert "probable_diagnosis.0: missing evidence" in result["rejected_recommendations"]
+
+
+def test_missing_required_item_field_is_schema_error():
+    card = make_card()
+    raw = json.loads(valid_json())
+    del raw["probable_diagnosis"][0]["reason"]
+    result = recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=lambda prompt: json.dumps(raw),
+        cards={card.card_id: card},
+    )
+    assert result["probable_diagnosis"] == []
+    assert result["incomplete_output"] is True
+    assert any(
+        "probable_diagnosis.0.reason (missing)" == item
+        for item in result["rejected_recommendations"]
+    )
+
+
+def test_schema_error_reports_only_paths_and_error_types():
+    card = make_card()
+    raw = json.loads(valid_json())
+    raw["investigations"] = {"text": "not a list"}
+    raw["missing_info"] = [None]
+    result = recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=lambda prompt: json.dumps(raw),
+        cards={card.card_id: card},
+    )
+    assert "investigations (list_type)" in result["rejected_recommendations"]
+    assert "missing_info (list/string_type)" in result["rejected_recommendations"]
+    assert "not a list" not in json.dumps(result)
 
 
 def test_prompt_includes_unknown_fields_but_excludes_images():
@@ -253,6 +431,29 @@ def test_structured_rules_use_applicability_in_improved_mode():
     assert result["missing_info"] == ["All retrieved cards were not applicable."]
 
 
+def test_groq_request_uses_json_and_low_reasoning_configuration(monkeypatch):
+    monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
+    monkeypatch.setenv("LLM_PROVIDER", "api")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
+    monkeypatch.setenv("LLM_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+    captured = {}
+
+    def mock_request(url, payload, headers):
+        captured["payload"] = payload
+        return {
+            "choices": [
+                {"finish_reason": "stop", "message": {"content": '{"ok": true}'}}
+            ]
+        }
+
+    monkeypatch.setattr(llm, "_json_request", mock_request)
+    assert generate("Return JSON") == '{"ok": true}'
+    assert captured["payload"]["reasoning_effort"] == "low"
+    assert captured["payload"]["response_format"] == {"type": "json_object"}
+    assert captured["payload"]["max_completion_tokens"] == 3000
+    assert "max_tokens" not in captured["payload"]
+
+
 @pytest.mark.parametrize(
     "raw",
     [
@@ -263,7 +464,7 @@ def test_structured_rules_use_applicability_in_improved_mode():
 )
 def test_invalid_or_unsupported_model_output(raw):
     card = make_card()
-    with pytest.raises(RecommendationError):
+    with pytest.raises((RecommendationSchemaError, UnsupportedEvidenceError)):
         recommend(
             {},
             retrieve_fn=lambda **kwargs: retrieved(),
@@ -274,7 +475,7 @@ def test_invalid_or_unsupported_model_output(raw):
 
 def test_invalid_model_json():
     card = make_card()
-    with pytest.raises(RecommendationError, match="valid recommendation JSON"):
+    with pytest.raises(MalformedRecommendationError, match="valid JSON"):
         recommend(
             {},
             retrieve_fn=lambda **kwargs: retrieved(),
@@ -283,9 +484,10 @@ def test_invalid_model_json():
         )
 
 
-def test_missing_api_key():
+def test_missing_api_key(monkeypatch):
     import os
 
+    monkeypatch.setattr("llm._load_dotenv", lambda: None)
     old = {key: os.environ.pop(key, None) for key in ("LLM_PROVIDER", "LLM_API_KEY")}
     os.environ["LLM_PROVIDER"] = "api"
     try:
@@ -295,6 +497,59 @@ def test_missing_api_key():
         for key, value in old.items():
             if value is not None:
                 os.environ[key] = value
+
+
+def test_api_request_uses_configured_key_and_user_agent(monkeypatch):
+    monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
+    monkeypatch.setenv("LLM_PROVIDER", "api")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
+    captured = {}
+
+    def mock_request(url, payload, headers):
+        captured["url"] = url
+        captured["headers"] = headers
+        return {"choices": [{"message": {"content": "{}"}}]}
+
+    monkeypatch.setattr(llm, "_json_request", mock_request)
+    assert generate("Return an empty JSON object") == "{}"
+    assert captured["headers"]["Authorization"] == "Bearer offline-test-key"
+    assert captured["headers"]["User-Agent"] == "AIMScribe-ClinicalRAG/0.1"
+
+@pytest.mark.parametrize(
+    ("response", "message"),
+    [
+        (
+            {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": "", "reasoning": "internal reasoning"},
+                    }
+                ]
+            },
+            "empty message content",
+        ),
+        (
+            {
+                "choices": [
+                    {"finish_reason": "length", "message": {"content": '{"partial"'}}
+                ]
+            },
+            "truncated",
+        ),
+        ({"choices": []}, "valid choice"),
+        ({"choices": [{"finish_reason": "stop", "message": {}}]}, "message content"),
+    ],
+)
+def test_groq_response_failures_are_explicit(monkeypatch, response, message):
+    monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
+    monkeypatch.setenv("LLM_PROVIDER", "api")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
+    monkeypatch.setenv("LLM_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+    monkeypatch.setattr(llm, "_json_request", lambda *args: response)
+
+    with pytest.raises(LLMError, match=message):
+        generate("Return JSON")
 
 
 def test_missing_clinical_information_is_preserved():
@@ -322,13 +577,16 @@ def test_missing_medication_field_cannot_be_invented():
             "evidence": [{"card_id": card.card_id, "pdf_page": 3}],
         }
     ]
-    with pytest.raises(RecommendationError, match="dose"):
-        recommend(
-            {},
-            retrieve_fn=lambda **kwargs: retrieved(),
-            llm_generate=lambda prompt: json.dumps(raw),
-            cards={card.card_id: card},
-        )
+    result = recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=lambda prompt: json.dumps(raw),
+        cards={card.card_id: card},
+    )
+    assert result["medication"] == []
+    assert "medication.0: unsupported medication field dose" in result[
+        "rejected_recommendations"
+    ]
 
 
 def test_empty_retrieval_returns_safe_result_without_llm_call():
