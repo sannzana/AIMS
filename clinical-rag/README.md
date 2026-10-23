@@ -55,9 +55,15 @@ python src/extract_pages.py
 python src/validate_cards.py --cards data/cards.jsonl --pages data/pages.json
 python src/build_index.py --rebuild
 python src/build_index.py --dev --rebuild
+streamlit run app.py
 ```
 
 Put source PDFs in `data/pdfs/`. Keep development fixtures in
 `data/sample_cards.jsonl`; these are clearly marked DEV ONLY and must not be
 used for patient care. Only manually checked cards should be placed in
 `data/cards.jsonl` with `verified: true`.
+
+The Streamlit interface loads all cards for display, retrieves from the local
+Chroma index, shows evidence and applicability status, and reports validation
+warnings. It does not generate unsupported recommendations; the local index
+must be built before retrieval.

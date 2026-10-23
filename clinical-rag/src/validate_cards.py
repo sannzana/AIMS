@@ -6,6 +6,7 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +15,20 @@ from pydantic import ValidationError
 from schema import Card
 
 
+_FONT_EXTRACTION_MAP = str.maketrans(
+    {
+        "Ɵ": "ti",
+        "Ō": "ft",
+        "Ʃ": "tt",
+    }
+)
+
+
 def normalize_text(value: str) -> str:
-    """Normalize line wrapping and whitespace for evidence matching."""
+    """Normalize verified extraction artifacts for evidence matching."""
     value = re.sub(r"-\s*\n\s*", "", value)
+    value = unicodedata.normalize("NFKC", value)
+    value = value.translate(_FONT_EXTRACTION_MAP)
     return re.sub(r"\s+", " ", value).strip().casefold()
 
 
@@ -48,22 +60,24 @@ def _validate_card(
     card: Card, documents: list[dict[str, Any]], line_number: int
 ) -> list[str]:
     errors: list[str] = []
-    declared_pages = set(card.source.pdf_pages)
-    for evidence in card.evidence:
+    declared_pages = set(card.pdf_page_numbers)
+    for evidence in card.exact_supporting_evidence_passages:
         if evidence.pdf_page <= 0:
             errors.append(
                 f"line {line_number} ({card.card_id}): page must be positive"
             )
-        if declared_pages and evidence.pdf_page not in declared_pages:
+        if evidence.pdf_page not in declared_pages:
             errors.append(
                 f"line {line_number} ({card.card_id}): evidence page "
-                f"{evidence.pdf_page} is not declared in source.pdf_pages"
+                f"{evidence.pdf_page} is not declared in pdf_page_numbers"
             )
-        page_text = _find_page(documents, card.source.title, evidence.pdf_page)
+        page_text = _find_page(
+            documents, card.source_pdf_title, evidence.pdf_page
+        )
         if page_text is None:
             errors.append(
                 f"line {line_number} ({card.card_id}): source page not found: "
-                f"{card.source.title!r} p.{evidence.pdf_page}"
+                f"{card.source_pdf_title!r} p.{evidence.pdf_page}"
             )
         elif normalize_text(evidence.passage) not in normalize_text(page_text):
             errors.append(
@@ -95,7 +109,7 @@ def validate_cards(cards_path: Path, pages_path: Path) -> tuple[int, int]:
         if card.card_id in card_ids:
             errors.append(f"line {line_number}: duplicate card_id: {card.card_id}")
         card_ids.add(card.card_id)
-        if card.medication is not None:
+        if card.medication is not None or card.model_dump().get("medication_details"):
             print(
                 f"REVIEW: line {line_number} ({card.card_id}): medication "
                 "details require manual verification against the source."

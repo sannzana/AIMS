@@ -1,0 +1,13 @@
+# Local source PDFs kept outside the project data directory.
+/dengue.pdf
+/cholera.pdf
+/hypertension.pdf
+/chikungunya.pdf
+
+# Internal AI-generated reports and development notes.
+/clinical-rag/PROJECT_STATUS_REPORT.md
+/clinical-rag/EVIDENCE_MISMATCH_REPORT.md
+/clinical-rag/PROPOSED_EVIDENCE_FIXES.md
+/clinical-rag/PROPOSED_UNICODE_FIX.md
+/clinical-rag/data/card_development_notes.md
+/clinical-rag/data/*.backup

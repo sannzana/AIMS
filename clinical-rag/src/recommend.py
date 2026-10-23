@@ -12,7 +12,9 @@ from applicability import check_applicability
 from build_index import load_cards
 from llm import LLMError, generate
 from retrieve import retrieve, QUERY_FIELDS
-from schema import Card
+from schema import Card, Conditions
+
+EXCLUDE_FROM_PROMPT = ("image", "image_related_info")
 
 
 class EvidenceReference(BaseModel):
@@ -62,7 +64,9 @@ def _parse_response(raw: str) -> RecommendationResponse:
 
 
 def _card_pages(card: Card) -> set[int]:
-    return set(card.source.pdf_pages) | {item.pdf_page for item in card.evidence}
+    return set(card.pdf_page_numbers) | {
+        item.pdf_page for item in card.exact_supporting_evidence_passages
+    }
 
 
 def _validate_output(response: RecommendationResponse, cards: dict[str, Card]) -> None:
@@ -93,23 +97,28 @@ def _validate_output(response: RecommendationResponse, cards: dict[str, Card]) -
                     f"for card {reference.card_id}"
                 )
         if isinstance(item, MedicationRecommendation):
-            card = cards.get(item.evidence[0].card_id) if item.evidence else None
-            source_medication = card.medication if card else None
             supplied = {
                 name: getattr(item, name)
                 for name in ("name", "dose", "route", "frequency", "duration", "instructions")
                 if getattr(item, name) is not None
             }
-            if source_medication is None and supplied:
-                raise RecommendationError(
-                    "Medication details were generated without a source medication"
-                )
-            if source_medication is not None:
-                for name, value in supplied.items():
-                    if getattr(source_medication, name) != value:
-                        raise RecommendationError(
-                            f"Medication field {name} is not supported by the cited card"
-                        )
+            sources = [
+                cards[reference.card_id]
+                for reference in item.evidence
+            ]
+            for name, value in supplied.items():
+                supported = False
+                for card in sources:
+                    medication = card.medication
+                    if medication is not None and getattr(medication, name) == value:
+                        supported = True
+                    details = card.model_dump().get("medication_details")
+                    if isinstance(details, dict) and details.get(name) == value:
+                        supported = True
+                if not supported:
+                    raise RecommendationError(
+                        f"Medication field {name} is not supported by the cited card"
+                    )
 
 
 def _prompt(patient: dict[str, Any], evidence: list[dict[str, Any]]) -> str:
@@ -128,6 +137,19 @@ def _prompt(patient: dict[str, Any], evidence: list[dict[str, Any]]) -> str:
         "Required top-level keys: probable_diagnosis, investigations, medication, "
         "advice, missing_info."
     )
+
+
+def _prompt_card(card: Card) -> dict[str, Any]:
+    raw = card.model_dump()
+    return {
+        key: value
+        for key, value in raw.items()
+        if key not in EXCLUDE_FROM_PROMPT
+        and value is not None
+        and value != ""
+        and value != []
+        and value != {}
+    }
 
 
 def recommend(
@@ -159,20 +181,19 @@ def recommend(
         card = cards.get(result.get("card_id"))
         if card is None:
             raise RecommendationError(f"Retrieved card is missing from corpus: {result.get('card_id')}")
-        entry = {
-            "card_id": card.card_id,
-            "disease": card.disease,
-            "category": card.category,
-            "action": card.action,
-            "conditions": _dump(card.conditions),
-            "exclusions_or_missing_info": card.exclusions_or_missing_info,
-            "medication": _dump(card.medication) if card.medication else None,
-            "source": _dump(card.source),
-            "evidence": [_dump(item) for item in card.evidence],
-            "similarity_score": result.get("similarity_score"),
-        }
-        if mode == "improved":
-            applicability = check_applicability(card, patient)
+        entry = _prompt_card(card)
+        entry["similarity_score"] = result.get("similarity_score")
+        if mode == "improved" and (card.structured_rules or card.conditions is not None):
+            applicability_card = (
+                card.model_copy(
+                    update={
+                        "conditions": Conditions.model_validate(card.structured_rules)
+                    }
+                )
+                if card.structured_rules
+                else card
+            )
+            applicability = check_applicability(applicability_card, patient)
             if applicability["status"] == "not_applicable":
                 continue
             entry["applicability"] = applicability

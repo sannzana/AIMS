@@ -9,6 +9,37 @@ from typing import Any
 
 from schema import Card
 
+EMBED_FIELDS = (
+    "disease_protocol",
+    "clinical_category",
+    "card_title",
+    "clinical_classification_presentation",
+    "relevant_symptoms_or_prerequisites",
+    "conditions_decision_logic",
+    "if_else_conditions_and_corresponding_actions",
+    "exceptions_contraindications",
+    "recommended_action",
+    "table_dependent_rules",
+    "exclusions_or_missing_information",
+    "medication_details",
+    "additional_information",
+    "exact_supporting_evidence_passages",
+)
+
+
+def _readable(value: Any) -> str:
+    if value is None or value == "" or value == [] or value == {}:
+        return ""
+    if isinstance(value, dict):
+        return "; ".join(
+            f"{key}: {text}"
+            for key, item in sorted(value.items())
+            if (text := _readable(item))
+        )
+    if isinstance(value, (list, tuple, set)):
+        return "; ".join(text for item in value if (text := _readable(item)))
+    return str(value)
+
 
 def load_cards(path: Path) -> list[Card]:
     cards = []
@@ -19,11 +50,11 @@ def load_cards(path: Path) -> list[Card]:
 
 
 def card_document(card: Card) -> str:
-    evidence = " ".join(item.passage for item in card.evidence)
+    data = card.model_dump()
     return " ".join(
-        part
-        for part in [card.disease, card.category, card.action or "", evidence]
-        if part
+        f"{field}: {text}"
+        for field in EMBED_FIELDS
+        if (text := _readable(data.get(field)))
     )
 
 
@@ -83,11 +114,15 @@ def build_index(
         metadatas=[
             {
                 "card_id": card.card_id,
-                "disease": card.disease,
-                "category": card.category,
-                "source_title": card.source.title,
-                "source_version": card.source.version or "",
-                "source_pdf_pages": json.dumps(card.source.pdf_pages),
+                "disease_protocol": card.disease_protocol,
+                "clinical_category": card.clinical_category,
+                "source_pdf_title": card.source_pdf_title,
+                "source_version_edition": card.source_version_edition or "",
+                "pdf_page_numbers": json.dumps(card.pdf_page_numbers),
+                # Legacy retrieval metadata names remain scalar and readable.
+                "source_title": card.source_pdf_title,
+                "source_version": card.source_version_edition or "",
+                "source_pdf_pages": json.dumps(card.pdf_page_numbers),
                 "verified": str(card.verified).lower(),
                 "dev_only": str(dev).lower(),
             }

@@ -4,11 +4,11 @@ import sys
 
 import fitz
 
-from build_index import build_index
+from build_index import EMBED_FIELDS, build_index, card_document
 from extract_pages import assigned_page_keys, extract_pages, render_flagged_pages
 from retrieve import patient_query, retrieve
 from schema import Card
-from validate_cards import validate_cards
+from validate_cards import normalize_text, validate_cards
 
 
 class FakeEmbedder:
@@ -154,6 +154,23 @@ def test_validate_cards_checks_normalized_evidence_duplicates_and_pages(tmp_path
     assert "manual verification still required" in output
 
 
+def test_normalize_text_handles_verified_font_artifacts_without_changing_clinical_values():
+    assert normalize_text("mulƟple paƟents aŌer oﬃce conﬁrmation") == (
+        "multiple patients after office confirmation"
+    )
+    assert normalize_text("aƩributable inﬂuence diﬀerence") == (
+        "attributable influence difference"
+    )
+
+
+def test_normalize_text_preserves_clinical_values_and_ambiguous_glyphs():
+    assert normalize_text("SBP ≥20 mmHg") != normalize_text("SBP ≥30 mmHg")
+    assert normalize_text("BP <130/85") != normalize_text("BP <130/95")
+    assert normalize_text("50-60 mg per kg") != normalize_text("50-600 mg per kg")
+    assert normalize_text("avoid NSAIDs") != normalize_text("use NSAIDs")
+    assert normalize_text("sugges�ve") != normalize_text("suggestive")
+
+
 def test_build_index_excludes_unverified_cards_and_retrieve_returns_metadata(tmp_path: Path):
     cards_path = tmp_path / "cards.jsonl"
     cards_path.write_text(
@@ -179,7 +196,27 @@ def test_build_index_excludes_unverified_cards_and_retrieve_returns_metadata(tmp
     assert results[0]["similarity_score"] == 0.8
     assert results[0]["source"]["title"] == "Protocol"
     assert results[0]["source"]["pdf_pages"] == [1]
-    assert all(isinstance(value, (str, int, float, bool)) for value in client.collection.rows["verified"]["metadata"].values())
+    assert all(
+        isinstance(value, (str, int, float, bool))
+        for value in client.collection.rows["verified"]["metadata"].values()
+    )
+
+
+def test_embedding_uses_only_central_fields_and_skips_nulls():
+    payload = card("embedded", True)
+    payload.update(
+        {
+            "card_title": "Useful title",
+            "additional_information": None,
+            "unrelated_field": "must not be embedded",
+        }
+    )
+    model = Card(**payload)
+    text = card_document(model)
+    assert "card_title: Useful title" in text
+    assert "additional_information" not in text
+    assert "unrelated_field" not in text
+    assert all(field in EMBED_FIELDS for field in EMBED_FIELDS)
 
 
 def test_patient_query_does_not_require_or_include_disease_name():

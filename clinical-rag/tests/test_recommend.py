@@ -189,6 +189,70 @@ def test_recommendation_without_evidence_is_rejected():
         )
 
 
+def test_prompt_includes_unknown_fields_but_excludes_images():
+    card = make_card()
+    card.future_clinical_field = "DEV future field"
+    card.image = "binary-or-url"
+    captured = {}
+
+    def mock_llm(prompt):
+        captured["prompt"] = prompt
+        return valid_json()
+
+    recommend(
+        {},
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=mock_llm,
+        cards={card.card_id: card},
+    )
+    assert "DEV future field" in captured["prompt"]
+    assert "binary-or-url" not in captured["prompt"]
+
+
+def test_card_without_structured_rules_is_retained_in_improved_mode():
+    card = make_card()
+    captured = {}
+
+    def mock_llm(prompt):
+        captured["prompt"] = prompt
+        return valid_json()
+
+    recommend(
+        {},
+        mode="improved",
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=mock_llm,
+        cards={card.card_id: card},
+    )
+    assert "DEV-001" in captured["prompt"]
+
+
+def test_structured_rules_use_applicability_in_improved_mode():
+    card = make_card()
+    card.structured_rules = {
+        "all": [{"field": "age", "op": ">=", "value": 18}],
+        "any": [],
+        "exceptions": [],
+        "required_inputs": [],
+    }
+    called = False
+
+    def fail_if_model_called(prompt):
+        nonlocal called
+        called = True
+        return valid_json()
+
+    result = recommend(
+        {"age": 10},
+        mode="improved",
+        retrieve_fn=lambda **kwargs: retrieved(),
+        llm_generate=fail_if_model_called,
+        cards={card.card_id: card},
+    )
+    assert called is False
+    assert result["missing_info"] == ["All retrieved cards were not applicable."]
+
+
 @pytest.mark.parametrize(
     "raw",
     [

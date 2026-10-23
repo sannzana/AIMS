@@ -28,7 +28,7 @@ def _table_text(tables: list[list[list[Any]]]) -> str:
     return "\n".join(rows)
 
 
-def extract_pdf(pdf_path: Path) -> dict[str, Any]:
+def extract_pdf(pdf_path: Path, source_title: str | None = None) -> dict[str, Any]:
     """Extract one-based page records, including table text where available."""
     if fitz is None:
         raise RuntimeError("PyMuPDF is required to extract PDF files")
@@ -61,22 +61,38 @@ def extract_pdf(pdf_path: Path) -> dict[str, Any]:
                 plumber.close()
     return {
         "pdf": pdf_path.name,
-        "title": pdf_path.stem,
+        "title": source_title or pdf_path.stem,
         "pages": pages,
     }
 
 
-def extract_pages(pdf_dir: Path, output_path: Path) -> None:
+def extract_pages(
+    pdf_dir: Path,
+    output_path: Path,
+    source_titles: dict[str, str] | None = None,
+    source_text_additions: dict[str, dict[str, str]] | None = None,
+) -> None:
     documents = []
+    source_titles = source_titles or {}
+    source_text_additions = source_text_additions or {}
     if pdf_dir.exists():
         for path in sorted(pdf_dir.glob("*.pdf")):
             try:
-                documents.append(extract_pdf(path))
+                document = extract_pdf(path, source_titles.get(path.name))
+                additions = source_text_additions.get(path.name, {})
+                for page in document["pages"]:
+                    addition = additions.get(str(page["page"]))
+                    if addition:
+                        page["text"] = f"{page['text'].rstrip()}\n{addition}"
+                        page["manual_review_flags"].append(
+                            "source_text_addition_manual_review"
+                        )
+                documents.append(document)
             except (OSError, RuntimeError) as exc:
                 documents.append(
                     {
                         "pdf": path.name,
-                        "title": path.stem,
+                        "title": source_titles.get(path.name, path.stem),
                         "pages": [],
                         "manual_review_flags": [f"extraction_failed: {exc}"],
                     }
@@ -151,9 +167,20 @@ def main() -> None:
     if not args.pdf_dir.exists():
         print(f"ERROR: PDF directory not found: {args.pdf_dir}", file=sys.stderr)
         raise SystemExit(2)
-    extract_pages(args.pdf_dir, args.output)
+    config = load_page_config(args.config) if args.config.exists() else {}
+    source_titles = {
+        str(assignment["pdf"]): str(assignment["source_title"])
+        for assignment in config.get("assignments", [])
+        if assignment.get("pdf") and assignment.get("source_title")
+    }
+    extract_pages(
+        args.pdf_dir,
+        args.output,
+        source_titles,
+        config.get("source_text_additions", {}),
+    )
     if args.config.exists():
-        pages = assigned_page_keys(load_page_config(args.config))
+        pages = assigned_page_keys(config)
         if len(pages) != len(set(pages)):
             print("ERROR: assigned page ranges contain duplicate pages", file=sys.stderr)
             raise SystemExit(1)

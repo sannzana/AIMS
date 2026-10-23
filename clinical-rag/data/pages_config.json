@@ -1,10 +1,35 @@
 {
   "description": "Assigned source-page manifest. Page numbers are original PDF positions; cover pages count as page 1.",
   "expected_unique_page_count": 45,
+  "source_text_additions": {
+    "dengue.pdf": {
+      "37": "Table 2: Table showing clinical differentiation among dengue, chikungunya and zika. HIGH: Dengue—thrombocytopenia, progressive increase in hematocrit, leukopenia; Chikungunya—arthralgias; Zika—pruritus. MODERATE: Dengue—anorexia or hyporexia, vomiting, abdominal pain, chills, hemorrhages (includes bleeding on the skin, mucous membranes, or both); Chikungunya—rash, conjunctivitis, arthritis, myalgias or bone pain; Zika—rash, conjunctivitis. LOW: Dengue—retro-ocular pain, hepatomegaly, headache, diarrhea, dysgeusia, cough, elevated transaminases, positive tourniquet test; Chikungunya—hemorrhages (includes bleeding on the skin, mucous membranes, or both); Zika—adenopathies, pharyngitis or odynophagia. Anorexia or hyporexia; vomiting; abdominal pain; chills; hemorrhages (includes bleeding on the skin, mucous membranes, or both). Retro-ocular pain; hepatomegaly; headache; diarrhea; dysgeusia; cough; elevated transaminases. Thrombocytopenia; progressive increase in hematocrit; leukopenia."
+    }
+  },
   "assignments": [
-    {"protocol": "dengue", "pdf": "dengue.pdf", "ranges": [[26, 28], [37, 41], [45, 48]]},
-    {"protocol": "hypertension", "pdf": "hypertension.pdf", "ranges": [[46, 52], [64, 65]]},
-    {"protocol": "cholera", "pdf": "cholera.pdf", "ranges": [[5, 14]]},
-    {"protocol": "chikungunya", "pdf": "chikungunya.pdf", "ranges": [[11, 22], [26, 27]]}
+    {
+      "protocol": "dengue",
+      "pdf": "dengue.pdf",
+      "source_title": "National Guideline for Clinical Management of Dengue",
+      "ranges": [[26, 28], [37, 41], [45, 48]]
+    },
+    {
+      "protocol": "hypertension",
+      "pdf": "hypertension.pdf",
+      "source_title": "National Guideline on Hypertension Bangladesh",
+      "ranges": [[46, 52], [64, 65]]
+    },
+    {
+      "protocol": "cholera",
+      "pdf": "cholera.pdf",
+      "source_title": "Clinical tools for cholera treatment facilities",
+      "ranges": [[5, 14]]
+    },
+    {
+      "protocol": "chikungunya",
+      "pdf": "chikungunya.pdf",
+      "source_title": "National Guideline on Clinical Management of Chikungunya Fever",
+      "ranges": [[11, 22], [26, 27]]
+    }
   ]
 }
