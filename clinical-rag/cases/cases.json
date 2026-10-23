@@ -1,1 +1,840 @@
-[]
+[
+  {
+    "id": "chikungunya-01",
+    "patient": {
+      "symptoms": "High fever, severe symmetric pain in wrists, knees and ankles, rash and headache",
+      "duration": "3 days",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Swollen tender joints, difficulty walking, no bleeding",
+      "measurements": "Temperature 39 C, BP 115/75",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Chikungunya",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "chikungunya-02",
+    "patient": {
+      "symptoms": "Sudden fever, intense pain in both hands and feet, maculopapular rash",
+      "duration": "2 days",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Bilateral joint swelling",
+      "measurements": "Temperature 38.8 C",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Chikungunya",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "chikungunya-03",
+    "patient": {
+      "symptoms": "Fever, severe ankle and wrist arthralgia, fatigue",
+      "duration": "4 days",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Tender peripheral joints",
+      "measurements": "Temperature 39 C",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Chikungunya",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "chikungunya-04",
+    "patient": {
+      "symptoms": "Acute fever, severe polyarthralgia, headache, rash",
+      "duration": "1 day",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "No reported bleeding or shock",
+      "measurements": "Temperature 39.2 C",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Chikungunya",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "chikungunya-05",
+    "patient": {
+      "symptoms": "Fever resolved but persistent bilateral small joint pain after acute febrile illness",
+      "duration": "12 days",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Stiffness of wrists and fingers",
+      "measurements": "BP 120/80",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Chikungunya",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "chikungunya-06",
+    "patient": {
+      "symptoms": "Sudden fever, severe joint pain, rash and nausea",
+      "duration": "3 days",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Symmetrical swollen joints; no mucosal bleeding",
+      "measurements": "Temperature 38.9 C",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Chikungunya",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "dengue-01",
+    "patient": {
+      "symptoms": "High fever, headache, severe pain behind eyes, myalgia, rash",
+      "duration": "3 days",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "No marked joint swelling",
+      "measurements": "Temperature 39.4 C",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Dengue",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "dengue-02",
+    "patient": {
+      "symptoms": "Sudden fever, severe retro-orbital pain, muscle aches, nausea",
+      "duration": "2 days",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "No severe polyarthralgia",
+      "measurements": "Temperature 39 C",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Dengue",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "dengue-03",
+    "patient": {
+      "symptoms": "Fever, abdominal pain and repeated vomiting",
+      "duration": "5 days",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Concern for dengue warning signs",
+      "measurements": "Temperature 38 C, BP 105/70",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Dengue",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "dengue-04",
+    "patient": {
+      "symptoms": "Fever, rash, headache, gum bleeding",
+      "duration": "4 days",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Mucosal bleeding reported",
+      "measurements": "Temperature 38.6 C",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Dengue",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "dengue-05",
+    "patient": {
+      "symptoms": "Fever, severe myalgia, headache, low platelet count",
+      "duration": "5 days",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Petechiae noted",
+      "measurements": "Platelets 75000 per microliter",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Dengue",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "dengue-06",
+    "patient": {
+      "symptoms": "Fever for 4 days, headache, lethargy, reduced oral intake",
+      "duration": "4 days",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Dengue suspected, no shock described",
+      "measurements": "Temperature 38.8 C",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Dengue",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "cholera-01",
+    "patient": {
+      "symptoms": "Abrupt profuse watery rice-water diarrhea and vomiting",
+      "duration": "1 day",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Severe thirst and dry mucous membranes",
+      "measurements": "Pulse 110, BP 95/60",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Cholera",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "cholera-02",
+    "patient": {
+      "symptoms": "Large-volume painless watery diarrhea",
+      "duration": "8 hours",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Signs of dehydration",
+      "measurements": "BP 100/65",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Cholera",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "cholera-03",
+    "patient": {
+      "symptoms": "Repeated watery stools with vomiting after unsafe water exposure",
+      "duration": "2 days",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Sunken eyes, reduced urine output",
+      "measurements": "Pulse 112",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Cholera",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "cholera-04",
+    "patient": {
+      "symptoms": "Acute rice-water diarrhea and severe dehydration",
+      "duration": "1 day",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Weak pulse, dry mouth",
+      "measurements": "BP 85/55",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Cholera",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "cholera-05",
+    "patient": {
+      "symptoms": "Profuse watery diarrhea, leg cramps and thirst",
+      "duration": "12 hours",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Dehydration without bloody stools",
+      "measurements": "Pulse 106",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Cholera",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "cholera-06",
+    "patient": {
+      "symptoms": "Sudden watery diarrhea and vomiting during community outbreak",
+      "duration": "1 day",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Poor skin turgor",
+      "measurements": "BP 100/60",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Cholera",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "hypertension-01",
+    "patient": {
+      "symptoms": "Repeated elevated blood pressure at home, mild headache",
+      "duration": "30 days",
+      "age": 52,
+      "sex": "Female",
+      "history": "Repeated elevated blood pressure; no other known chronic disease",
+      "clinical_findings": "Otherwise well",
+      "measurements": "BP 155/96 on repeated readings",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Hypertension",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Cholera"
+    ]
+  },
+  {
+    "id": "hypertension-02",
+    "patient": {
+      "symptoms": "No symptoms; repeated high blood pressure readings",
+      "duration": "20 days",
+      "age": 52,
+      "sex": "Male",
+      "history": "Repeated elevated blood pressure; no other known chronic disease",
+      "clinical_findings": "Routine screening",
+      "measurements": "BP 162/98",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Hypertension",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Cholera"
+    ]
+  },
+  {
+    "id": "hypertension-03",
+    "patient": {
+      "symptoms": "Persistent raised blood pressure, occasional dizziness",
+      "duration": "3 weeks",
+      "age": 52,
+      "sex": "Female",
+      "history": "Repeated elevated blood pressure; no other known chronic disease",
+      "clinical_findings": "No chest pain",
+      "measurements": "BP 148/92",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Hypertension",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Cholera"
+    ]
+  },
+  {
+    "id": "hypertension-04",
+    "patient": {
+      "symptoms": "Follow-up for sustained elevated blood pressure",
+      "duration": "2 months",
+      "age": 52,
+      "sex": "Male",
+      "history": "Repeated elevated blood pressure; no other known chronic disease",
+      "clinical_findings": "No focal neurologic signs",
+      "measurements": "BP 150/94",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Hypertension",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Cholera"
+    ]
+  },
+  {
+    "id": "hypertension-05",
+    "patient": {
+      "symptoms": "Elevated BP detected at clinic and home",
+      "duration": "4 weeks",
+      "age": 52,
+      "sex": "Female",
+      "history": "Repeated elevated blood pressure; no other known chronic disease",
+      "clinical_findings": "No dyspnea",
+      "measurements": "Clinic BP 158/100, home BP 150/95",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Hypertension",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Cholera"
+    ]
+  },
+  {
+    "id": "hypertension-06",
+    "patient": {
+      "symptoms": "Repeated hypertension readings with morning headache",
+      "duration": "6 weeks",
+      "age": 52,
+      "sex": "Male",
+      "history": "Repeated elevated blood pressure; no other known chronic disease",
+      "clinical_findings": "No acute neurologic deficit",
+      "measurements": "BP 166/102",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Hypertension",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Dengue",
+      "Cholera"
+    ]
+  },
+  {
+    "id": "none-01",
+    "patient": {
+      "symptoms": "Sore throat, runny nose and mild cough without fever",
+      "duration": "2 days",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "No dehydration or joint pain",
+      "measurements": "Temperature 36.9 C, BP 116/74",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "none",
+    "must_include_categories": [],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "none-02",
+    "patient": {
+      "symptoms": "Burning epigastric pain after spicy meals and heartburn",
+      "duration": "4 days",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "No fever, diarrhea or raised BP",
+      "measurements": "BP 118/76",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "none",
+    "must_include_categories": [],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "none-03",
+    "patient": {
+      "symptoms": "Itchy localized insect bite on forearm",
+      "duration": "1 day",
+      "age": 32,
+      "sex": "Female",
+      "history": "No known chronic diseases",
+      "clinical_findings": "Small isolated wheal, no systemic symptoms",
+      "measurements": "Temperature 37 C",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "none",
+    "must_include_categories": [],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "none-04",
+    "patient": {
+      "symptoms": "Low back pain after lifting heavy boxes",
+      "duration": "3 days",
+      "age": 32,
+      "sex": "Male",
+      "history": "No known chronic diseases",
+      "clinical_findings": "No fever or bowel symptoms",
+      "measurements": "BP 120/78",
+      "medicines": "None reported",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "none",
+    "must_include_categories": [],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "confusable-1",
+    "patient": {
+      "symptoms": "Fever, rash and very severe small joint pain; dengue also possible",
+      "duration": "3 days",
+      "age": 40,
+      "sex": "Female",
+      "history": "No chronic illness reported",
+      "clinical_findings": "Swollen wrists, no bleeding",
+      "measurements": "BP 117/76",
+      "medicines": "Unknown",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Chikungunya",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "confusable-2",
+    "patient": {
+      "symptoms": "Fever, rash, retro-orbital pain and body aches; joint discomfort",
+      "duration": "4 days",
+      "age": 40,
+      "sex": "Male",
+      "history": "No chronic illness reported",
+      "clinical_findings": "No joint swelling",
+      "measurements": "BP 112/72",
+      "medicines": "Unknown",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Dengue",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "confusable-3",
+    "patient": {
+      "symptoms": "Acute fever, symmetrical ankle arthritis, headache and rash",
+      "duration": "2 days",
+      "age": 40,
+      "sex": "Female",
+      "history": "No chronic illness reported",
+      "clinical_findings": "Tender swollen ankles; possible dengue differential",
+      "measurements": "Temperature 39 C",
+      "medicines": "Unknown",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Chikungunya",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "confusable-4",
+    "patient": {
+      "symptoms": "Fever, rash and severe headache with repeated vomiting",
+      "duration": "4 days",
+      "age": 40,
+      "sex": "Male",
+      "history": "No chronic illness reported",
+      "clinical_findings": "No prominent symmetrical arthritis",
+      "measurements": "BP 105/70",
+      "medicines": "Unknown",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Dengue",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Chikungunya",
+      "Cholera",
+      "Hypertension"
+    ]
+  },
+  {
+    "id": "confusable-5",
+    "patient": {
+      "symptoms": "Fever and productive cough with previously documented repeated hypertension",
+      "duration": "3 days",
+      "age": 40,
+      "sex": "Female",
+      "history": "Previously diagnosed sustained hypertension",
+      "clinical_findings": "Known elevated home blood pressures",
+      "measurements": "BP 165/100, temperature 38.6 C",
+      "medicines": "Unknown",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Hypertension",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Chikungunya",
+      "Cholera"
+    ]
+  },
+  {
+    "id": "confusable-6",
+    "patient": {
+      "symptoms": "Fever and sore throat with longstanding sustained hypertension",
+      "duration": "2 days",
+      "age": 40,
+      "sex": "Male",
+      "history": "Previously diagnosed sustained hypertension",
+      "clinical_findings": "No hypertensive emergency signs reported",
+      "measurements": "BP 160/95, temperature 38.2 C",
+      "medicines": "Unknown",
+      "allergies": "Unknown"
+    },
+    "expected_disease": "Hypertension",
+    "must_include_categories": [
+      "Investigation",
+      "Medication",
+      "Advice"
+    ],
+    "forbidden_diseases_in_management": [
+      "Dengue",
+      "Chikungunya",
+      "Cholera"
+    ]
+  }
+]
