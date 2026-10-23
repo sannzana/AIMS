@@ -532,63 +532,105 @@ if __name__ == "__main__":
     main()
 
 
-# Category-scoped retrieval uses Chroma for discovery and patient-aware
-# re-ranking for selection. A clinically uncommon complication must not outrank
-# ordinary management solely because its text contains many medical terms.
-def _category_relevance(hit: dict[str, Any], card: Any, patient: dict[str, Any], primary: str | None) -> tuple[float, float]:
-    raw = card.model_dump() if hasattr(card, "model_dump") else (dict(card) if card else {})
-    query = patient_query(patient).lower()
-    title = str(raw.get("card_title") or "").lower()
-    prereq = str(raw.get("relevant_symptoms_or_prerequisites") or "").lower()
-    category = str(raw.get("clinical_category") or "")
-    overlap = len(_tokens(query) & _tokens(title + " " + prereq))
-    score = float(hit["similarity_score"]) + 0.065 * min(overlap, 8)
-    if primary and raw.get("disease_protocol") == primary:
-        score += 0.24
-    if category == "Medication":
-        ordinary = ("common", "home", "outpatient", "first-line", "symptomatic")
-        specialized = ("serious complications", "hospital", "intensive", "critical care")
-        if any(word in title for word in ordinary):
-            score += 0.33
-        if any(word in title for word in specialized):
-            score -= 0.30
-            severe_indications = (
-                "bleeding", "renal failure", "hypotension", "shock", "meningoencephalitis",
-                "pericarditis", "neuropathy", "refractory", "dehydration", "hospital", "inr"
-            )
-            if any(term in query for term in severe_indications):
-                score += 0.38
-    return score, float(hit["similarity_score"])
+# Phase 1: combine semantic hits with local sparse retrieval; do not apply
+# disease-specific boosts or infer a diagnosis from similarity alone.
+from functools import lru_cache
+from collections import Counter
+import math
+
+from build_index import retrieval_text
+
+
+@lru_cache(maxsize=4)
+def _resources(persist_dir: str, model_name: str):
+    from sentence_transformers import SentenceTransformer
+    import chromadb
+    model = SentenceTransformer(model_name)
+    collection = chromadb.PersistentClient(path=persist_dir).get_collection(
+        "clinical_cards_dev" if Path(persist_dir).name == "dev_index" else "clinical_cards"
+    )
+    return model, collection
+
+
+def clinical_query(patient: dict[str, Any]) -> str:
+    """Clinical values without metadata labels being used as search terms."""
+    values = []
+    for key in QUERY_FIELDS:
+        value = patient.get(key)
+        if value not in (None, "", [], {}):
+            values.append(_readable(value))
+    return ". ".join(values)
+
+
+class Retriever:
+    """Cached embedding model, Chroma collection and in-memory sparse index."""
+
+    def __init__(self, persist_dir: Path = Path("data/index"),
+                 cards: Mapping[str, Any] | None = None,
+                 model_name: str = "all-MiniLM-L6-v2"):
+        self.cards = dict(cards) if cards is not None else _default_cards(persist_dir)
+        self.embedder, self.collection = _resources(str(persist_dir), model_name)
+        self.documents = {cid: _tokens(retrieval_text(card))
+                          for cid, card in self.cards.items()}
+        self.doc_count = max(1, len(self.documents))
+        frequencies = Counter(token for tokens in self.documents.values() for token in tokens)
+        self.idf = {term: math.log(1 + (self.doc_count - freq + .5) / (freq + .5))
+                    for term, freq in frequencies.items()}
+
+    def search(self, query: str, *, category: str | None = None,
+               disease: str | None = None, roles: set[str] | None = None,
+               n: int = 20) -> list[dict[str, Any]]:
+        from card_roles import assign_role
+        dense = _query(self.collection, self.embedder, query, max(n, 80),
+                       category=category, disease=disease)
+        qualified = {
+            cid for cid, card in self.cards.items()
+            if (category is None or card.clinical_category == category)
+            and (disease is None or card.disease_protocol == disease)
+            and (roles is None or assign_role(card) in roles)
+        }
+        dense = [hit for hit in dense if hit["card_id"] in qualified]
+        query_tokens = _tokens(query)
+        sparse = sorted(qualified,
+                        key=lambda cid: sum(self.idf.get(t, 0) for t in
+                                            query_tokens & self.documents[cid]),
+                        reverse=True)
+        sparse = [cid for cid in sparse if query_tokens & self.documents[cid]]
+        fused = {}
+        for rank, hit in enumerate(dense, 1):
+            fused[hit["card_id"]] = [1 / (60 + rank), hit]
+        for rank, cid in enumerate(sparse, 1):
+            if cid not in fused:
+                card = self.cards[cid]
+                fused[cid] = [0, {
+                    "card_id": cid, "similarity_score": 0.0,
+                    "metadata": {
+                        "card_id": cid, "disease_protocol": card.disease_protocol,
+                        "clinical_category": card.clinical_category,
+                    },
+                    "source": {"title": card.source_pdf_title,
+                               "pdf_pages": card.pdf_page_numbers},
+                }]
+            fused[cid][0] += 1 / (60 + rank)
+        ranked = sorted(fused.values(), key=lambda value: value[0], reverse=True)
+        return [dict(hit, retrieval_score=score) for score, hit in ranked[:n]]
 
 
 def retrieve_category(patient: dict[str, Any], category: str, *, diseases: list[str] | None = None,
                       top_k: int = 3, persist_dir: Path = Path("data/index"),
                       cards: Mapping[str, Any] | None = None,
                       model_name: str = "all-MiniLM-L6-v2") -> list[dict[str, Any]]:
-    if category not in CATEGORIES or top_k < 1:
+    if category not in CATEGORIES or top_k <= 0:
         return []
-    from sentence_transformers import SentenceTransformer
-    import chromadb
-    embedder = SentenceTransformer(model_name)
-    collection_name = "clinical_cards_dev" if persist_dir.name == "dev_index" else "clinical_cards"
-    collection = chromadb.PersistentClient(path=str(persist_dir)).get_collection(collection_name)
-    context = patient_query(patient) or "clinical case"
-    names = list(dict.fromkeys(d for d in (diseases or []) if d))[:2]
+    engine = Retriever(persist_dir, cards, model_name)
+    query = clinical_query(patient) or "clinical protocol"
+    names = list(dict.fromkeys(diseases or []))
     if not names:
-        results = _query(collection, embedder, context + "; " + CATEGORY_INTENTS[category],
-                         80, category=category)
-    else:
-        results = []
-        for name in names:
-            results += _query(collection, embedder,
-                              context + "; " + name + "; " + CATEGORY_INTENTS[category],
-                              80, category=category, disease=name)
-    unique: dict[str, dict[str, Any]] = {}
-    for hit in results:
-        card_id = hit["card_id"]
-        if card_id not in unique or hit["similarity_score"] > unique[card_id]["similarity_score"]:
-            unique[card_id] = hit
-    ranked = sorted(unique.values(),
-                    key=lambda hit: _category_relevance(hit, (cards or {}).get(hit["card_id"]), patient,
-                                                         names[0] if names else None), reverse=True)
-    return ranked[:top_k]
+        return engine.search(query, category=category, n=top_k)
+    hits = {}
+    for name in names:
+        for item in engine.search(query, category=category, disease=name, n=max(top_k, 12)):
+            cid = item["card_id"]
+            if cid not in hits or item["retrieval_score"] > hits[cid]["retrieval_score"]:
+                hits[cid] = item
+    return sorted(hits.values(), key=lambda item: item["retrieval_score"], reverse=True)[:top_k]
