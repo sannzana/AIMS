@@ -41,6 +41,8 @@ def _json_request(url: str, payload: dict[str, Any], headers: dict[str, str]) ->
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
             return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise LLMError(f"LLM provider returned HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError) as exc:
         raise LLMError("LLM request failed or timed out") from exc
     except json.JSONDecodeError as exc:
@@ -79,7 +81,14 @@ def generate(prompt: str) -> str:
                 {"role": "user", "content": prompt},
             ],
         }
-        data = _json_request(base_url, payload, {"Authorization": f"Bearer {api_key}"})
+        data = _json_request(
+            base_url,
+            payload,
+            {
+                "Authorization": f"Bearer {api_key}",
+                "User-Agent": "AIMScribe-ClinicalRAG/0.1",
+            },
+        )
         try:
             text = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
