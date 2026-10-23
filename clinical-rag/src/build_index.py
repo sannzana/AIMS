@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from schema import Card
+from card_roles import assign_role
 
 EMBED_FIELDS = (
     "disease_protocol",
@@ -56,6 +57,18 @@ def card_document(card: Card) -> str:
         for field in EMBED_FIELDS
         if (text := _readable(data.get(field)))
     )
+
+
+def retrieval_text(card: Card) -> str:
+    """Short, clinically focused text for embedding; full card stays in documents."""
+    raw = card.model_dump()
+    fields = ("disease_protocol", "card_title",
+              "relevant_symptoms_or_prerequisites",
+              "clinical_classification_presentation")
+    parts = [_readable(raw.get(key)) for key in fields]
+    if card.clinical_category in ("Investigation", "Medication", "Advice"):
+        parts.append(_readable(raw.get("recommended_action"))[:300])
+    return ". ".join(part for part in parts if part)
 
 
 def _embedding_values(values: Any) -> Any:
@@ -131,7 +144,7 @@ def build_index(
     if not cards:
         return 0
     documents = [card_document(card) for card in cards]
-    embeddings = _embedding_values(embedder.encode(documents))
+    embeddings = _embedding_values(embedder.encode([retrieval_text(card) for card in cards]))
     collection.upsert(
         ids=[card.card_id for card in cards],
         documents=documents,
@@ -139,6 +152,7 @@ def build_index(
         metadatas=[
             {
                 "card_id": card.card_id,
+                "card_role": assign_role(card),
                 "disease_protocol": card.disease_protocol,
                 "clinical_category": card.clinical_category,
                 "source_pdf_title": card.source_pdf_title,
