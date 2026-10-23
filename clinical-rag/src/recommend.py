@@ -634,3 +634,64 @@ def recommend_section(patient: dict[str, Any], stage: str, *, mode: str = "impro
     if not result[key] and not result["missing_info"]:
         result["missing_info"] = ["No validated recommendation for this section; clinical assessment required."]
     return result
+
+
+def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
+                         cards: dict[str, Card], persist_dir: Path = Path("data/index"),
+                         diseases: list[str] | None = None,
+                         llm_generate: Callable[[str], str] = generate) -> dict[str, Any]:
+    """Produce one grounded management response from category-specific cards."""
+    from retrieve import retrieve_category
+    chosen = []
+    for category, count in (("Investigation", 2), ("Medication", 2), ("Advice", 2)):
+        hits = retrieve_category(patient, category, diseases=diseases,
+                                 top_k=count, persist_dir=persist_dir, cards=cards)
+        chosen.extend(cards[hit["card_id"]] for hit in hits if hit.get("card_id") in cards)
+    if diseases and "Chikungunya" in diseases and "CHI-026" in cards:
+        chosen.append(cards["CHI-026"])
+    chosen = list({card.card_id: card for card in chosen}.values())
+    result = {key: [] for key in STAGE_TO_KEY.values()}
+    result.update({"missing_info": [], "evidence_card_ids": [], "stage": "Management"})
+    prepared = []
+    ctx = _structured_patient_context(patient)
+    for card in chosen:
+        applicability = card_rule_applicability(card, ctx)
+        if mode == "improved" and applicability and applicability.get("status") == "not_applicable":
+            continue
+        entry = _prompt_card(card)
+        # Retain all source rules and restrictions; one quoted passage per card
+        # is sufficient for a short prompt. Original evidence remains in corpus.
+        if entry.get("exact_supporting_evidence_passages"):
+            entry["exact_supporting_evidence_passages"] = entry["exact_supporting_evidence_passages"][:1]
+        if applicability:
+            entry["applicability"] = {"status": applicability.get("status"),
+                                       "missing_inputs": applicability.get("missing_inputs", [])[:6]}
+        prepared.append(entry)
+    selected = []
+    for entry in prepared:
+        if len(_prompt(patient, selected + [entry]).encode("utf-8")) <= 19000:
+            selected.append(entry)
+    result["evidence_card_ids"] = [x["card_id"] for x in selected]
+    if not selected:
+        result["notice"] = "No management evidence fits the request; clinical review needed."
+        return result
+    prompt = _prompt(patient, selected) + (
+        " This is a management plan for a PROBABLE, unconfirmed diagnosis. "
+        "Set probable_diagnosis to []. Provide source-supported investigations "
+        "with purpose/timing, medication options with restrictions, and advice "
+        "in ONE JSON response. Keep all necessary safety conditions, never "
+        "invent doses, and do not prescribe when prerequisites are unknown."
+    )
+    allowed = {x["card_id"]: cards[x["card_id"]] for x in selected}
+    try:
+        response, errors = _parse_response_partial(llm_generate(prompt))
+        response.probable_diagnosis = []
+        validated, rejected = _validate_output(response, allowed)
+        output = _dump(validated)
+        _attach_traceability(output, validated, allowed)
+        result.update(output)
+        if errors or rejected:
+            result["notice"] = "Rejected unsupported items: " + "; ".join((errors + rejected)[:4])
+    except (LLMError, RecommendationError, ValueError) as exc:
+        result["notice"] = f"Management generation unavailable: {exc}"
+    return result
