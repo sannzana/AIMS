@@ -41,6 +41,8 @@ def _index_ready():
 def evaluate(cases, cards, search=retrieve_category):
     """Search injectable for deterministic offline unit tests."""
     top1 = top2 = scoped_items = contaminated = covered = requested = 0
+    reciprocal_rank = 0.0
+    recall5 = recall10 = eligible_cases = 0
     detail = []
     for case in cases:
         patient = case["patient"]
@@ -56,6 +58,12 @@ def evaluate(cases, cards, search=retrieve_category):
             if disease and disease not in ranked:
                 ranked.append(disease)
         expected = case["expected_disease"]
+        if expected != "none":
+            eligible_cases += 1
+            if expected in ranked:
+                reciprocal_rank += 1 / (ranked.index(expected) + 1)
+            recall5 += expected in ranked[:5]
+            recall10 += expected in ranked[:10]
         top1 += bool(ranked and ranked[0] == expected)
         top2 += expected in ranked[:2]
         # Existing retrieval has no abstain gate; 'none' cases are expected
@@ -83,6 +91,9 @@ def evaluate(cases, cards, search=retrieve_category):
     n = len(cases)
     return {
         "cases": n,
+        "disease_recall_at_5": recall5 / eligible_cases if eligible_cases else None,
+        "disease_recall_at_10": recall10 / eligible_cases if eligible_cases else None,
+        "disease_mrr_at_10": reciprocal_rank / eligible_cases if eligible_cases else None,
         "top1_disease_acc": top1 / n if n else 0,
         "top2_disease_acc": top2 / n if n else 0,
         "cross_disease_contamination_rate": contaminated / scoped_items if scoped_items else None,
