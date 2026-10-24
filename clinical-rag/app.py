@@ -281,8 +281,8 @@ def main() -> None:
             with st.spinner("Reviewing diagnostic evidence..."):
                 if st.session_state.get("case_mode") == "improved" and not names:
                     diagnosis = {"probable_diagnosis": [], "missing_info": [
-                        "Insufficient matching case-definition evidence; request more clinical findings."
-                    ], "evidence_card_ids": [], "notice": "No clinically supported disease candidate."}
+                        "Diagnostic selection did not complete; check candidate status and retrieval/model diagnostics."
+                    ], "evidence_card_ids": [], "notice": ranking.get("notice") or "No supported candidate after source review."}
                 else:
                     diagnosis = recommend_section(
                         {**patient, "_structured_facts": ranking.get("features", {})}
@@ -307,7 +307,7 @@ def main() -> None:
         if st.session_state.get("case_mode") == "improved":
             ranking = st.session_state.get("diagnosis_ranking", {})
             st.caption("Clinical candidate status: " + ranking.get("status", "unknown") +
-                       " (heuristic ranking, not a diagnosis probability)")
+                       " (source-grounded triage status, not a diagnosis probability)")
         if output.get("notice"):
             st.warning(output["notice"])
         for item in output.get("probable_diagnosis", []):
