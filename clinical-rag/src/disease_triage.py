@@ -71,41 +71,69 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         })
     # All source field names are discovered across the entire evidence corpus.
     fields = sorted(rule_fields(cards))
-    prompt = (
-        "You are an evidence matching component, not a treating clinician. "
-        "Return ONLY JSON. Compare ALL patient observations (including negated "
-        "findings, counts, lab units, duration, blood pressure) against the "
-        "source case definitions. 'No', 'none', 'denies', 'absent', and 'without' "
-        "indicate NEGATION, not a positive match. Do not treat missing as false. "
-        "A numeric condition must use the patient's measured value and the "
-        "operator/threshold in that specific source criterion. Do not invent "
-        "thresholds, diagnoses, clinical measurements or patient quotes. "
-        "Do not exclude an unrelated diagnosis just because another condition "
-        "is present; comorbid diseases can coexist. Do not use severity or "
-        "differential cards to introduce new diagnoses. If necessary evidence "
-        "is missing, mark uncertain and request information. "
-        "Return {\"candidates\":[{\"card_id\":\"id\","
-        "\"decision\":\"supported|uncertain|contradicted\","
-        "\"patient_quotes\":[\"EXACT substring copied from patient input\"],"
-        "\"missing\":[\"needed datum\"]}],"
-        "\"facts\":{\"source_rule_field\":{\"value\":number|string|boolean|null,\"quote\":\"exact patient substring\"}}}. "
-        "Select only source card IDs from the provided cards. The facts dictionary "
-        "may contain only provided field names. Each non-null fact MUST be "
-        "an object {\"value\":scalar,\"quote\":\"exact quoted patient substring\"}. "
-        "Use null for missing facts. Values must be explicitly stated "
-        "in the patient data. Missing values must be null. "
-        "\nPATIENT:\n" + _patient_text(patient) +
-        "\nAVAILABLE SOURCE FIELDS:\n" + json.dumps(fields) +
-        "\nCASE-DEFINITION CARDS:\n" + json.dumps(concise, ensure_ascii=False)
+    def build_prompt(batch):
+        prompt = (
+            "You are an evidence matching component, not a treating clinician. "
+            "Return ONLY JSON. Compare ALL patient observations (including negated "
+            "findings, counts, lab units, duration, blood pressure) against the "
+            "source case definitions. 'No', 'none', 'denies', 'absent', and 'without' "
+            "indicate NEGATION, not a positive match. Do not treat missing as false. "
+            "A numeric condition must use the patient's measured value and the "
+            "operator/threshold in that specific source criterion. Do not invent "
+            "thresholds, diagnoses, clinical measurements or patient quotes. "
+            "Do not exclude an unrelated diagnosis just because another condition "
+            "is present; comorbid diseases can coexist. Do not use severity or "
+            "differential cards to introduce new diagnoses. If necessary evidence "
+            "is missing, mark uncertain and request information. "
+            "Return {\"candidates\":[{\"card_id\":\"id\","
+            "\"decision\":\"supported|uncertain|contradicted\","
+            "\"patient_quotes\":[\"EXACT substring copied from patient input\"],"
+            "\"missing\":[\"needed datum\"]}],"
+            "\"facts\":{\"source_rule_field\":{\"value\":number|string|boolean|null,\"quote\":\"exact patient substring\"}}}. "
+            "Select only source card IDs from the provided cards. The facts dictionary "
+            "may contain only provided field names. Each non-null fact MUST be "
+            "an object {\"value\":scalar,\"quote\":\"exact quoted patient substring\"}. "
+            "Use null for missing facts. Values must be explicitly stated "
+            "in the patient data. Missing values must be null. "
+            "\nPATIENT:\n" + _patient_text(patient) +
+            "\nAVAILABLE SOURCE FIELDS:\n" + json.dumps(fields) +
+            "\nCASE-DEFINITION CARDS:\n" + json.dumps(batch, ensure_ascii=False)
     )
-    if len(prompt.encode("utf-8")) > 28000:
+        return prompt
+    # A single unbounded clinical corpus can exceed the model request budget.
+    # Split case-definition cards by serialized prompt size, never by disease.
+    batches = []
+    batch = []
+    for card in concise:
+        trial = batch + [card]
+        if batch and len(build_prompt(trial).encode("utf-8")) > 23000:
+            batches.append(batch)
+            batch = [card]
+        else:
+            batch = trial
+        if len(build_prompt(batch).encode("utf-8")) > 28000:
+            return {"status": "unavailable", "candidates": [], "features": {},
+                    "notice": "A source case-definition card exceeds the model request budget."}
+    if batch:
+        batches.append(batch)
+    responses = []
+    failures = []
+    for batch in batches:
+        try:
+            responses.append(_json_object(llm_generate(build_prompt(batch))))
+        except (LLMError, ValueError, TypeError, IndexError, KeyError) as exc:
+            failures.append(type(exc).__name__ + ": " + str(exc)[:160])
+    if not responses:
         return {"status": "unavailable", "candidates": [], "features": {},
-                "notice": "Diagnostic evidence exceeds safe request budget."}
-    try:
-        response = _json_object(llm_generate(prompt))
-    except (LLMError, ValueError, TypeError, IndexError, KeyError) as exc:
-        return {"status": "unavailable", "candidates": [], "features": {},
-                "notice": "Triage unavailable; no keyword fallback. " + str(exc)[:160]}
+                "notice": "Diagnostic model calls failed: " + "; ".join(failures[:2])}
+    response = {"candidates": [], "facts": {}}
+    for result in responses:
+        entries = result.get("candidates", [])
+        if isinstance(entries, list):
+            response["candidates"].extend(entries)
+        values = result.get("facts", {})
+        if isinstance(values, dict):
+            response["facts"].update(values)
     proposals = response.get("facts", {})
     facts, rejected_facts = verify_facts(proposals, patient, set(fields))
     boolean_facts, boolean_rejected = verify_boolean_facts(
