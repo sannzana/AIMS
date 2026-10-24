@@ -1,7 +1,7 @@
 """Offline checks for generic source facts and provenance."""
 from types import SimpleNamespace
 
-from fact_verification import rule_fields, verify_facts
+from fact_verification import rule_fields, verify_facts, verify_boolean_facts
 
 
 def test_source_rule_fields_are_discovered_without_disease_names():
@@ -52,3 +52,51 @@ def test_unknown_is_not_false():
         {"history": "finding not measured"}, {"finding_present"})
     assert result == {}
     assert rejected == {}
+
+
+def test_confirmed_boolean_requires_separate_semantic_pass():
+    patient = {"symptoms": "I do not have the reported clinical finding"}
+    proposed = {"finding_present": {
+        "value": False, "quote": "do not have the reported clinical finding"
+    }}
+    prompts = []
+    def check(prompt):
+        prompts.append(prompt)
+        return '{"decisions":{"finding_present":"confirmed"}}'
+    values, errors = verify_boolean_facts(proposed, patient, {"finding_present"}, check)
+    assert values == {"finding_present": False}
+    assert errors == {}
+    assert "negation scope" in prompts[0]
+
+
+def test_boolean_cannot_be_confirmed_by_quote_alone():
+    patient = {"symptoms": "I do not have the reported clinical finding"}
+    proposed = {"finding_present": {
+        "value": True, "quote": "do not have the reported clinical finding"
+    }}
+    values, errors = verify_boolean_facts(
+        proposed, patient, {"finding_present"},
+        lambda prompt: '{"decisions":{"finding_present":"rejected"}}'
+    )
+    assert values == {}
+    assert "finding_present" in errors
+
+
+def test_boolean_verifier_unavailable_is_unknown():
+    proposed = {"finding_present": {"value": True, "quote": "finding exists"}}
+    def offline(_):
+        raise RuntimeError("offline")
+    values, errors = verify_boolean_facts(
+        proposed, {"symptoms": "finding exists"}, {"finding_present"}, offline
+    )
+    assert values == {}
+    assert "finding_present" in errors
+
+
+def test_model_cannot_introduce_boolean_for_unknown_field():
+    proposed = {"not_in_source": {"value": True, "quote": "finding exists"}}
+    values, _ = verify_boolean_facts(
+        proposed, {"symptoms": "finding exists"}, {"other_field"},
+        lambda _: '{"decisions":{"not_in_source":"confirmed"}}'
+    )
+    assert values == {}
