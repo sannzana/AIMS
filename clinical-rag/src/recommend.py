@@ -533,23 +533,9 @@ def recommend(
 
 
 def _structured_patient_context(patient: dict[str, Any]) -> dict[str, Any]:
-    """Promote explicit observed features into rule fields; never infer absent signs."""
-    import re
-    from patient_features import extract_patient_features
-    enriched = {**patient, **extract_patient_features(patient)}
-    duration = str(patient.get("duration", ""))
-    match = re.fullmatch(r"\s*(\d+)\s*(?:day|days|d)\s*", duration, re.I)
-    if match:
-        days = int(match.group(1))
-        enriched.setdefault("days_since_illness_onset", days)
-        enriched.setdefault("illness_day", days)
-        # Fever onset is not necessarily illness onset. Only map when explicitly
-        # described as fever duration, or leave separate fever-onset field unknown.
-    symptoms = str(patient.get("symptoms", "")).lower()
-    if "fever" in symptoms and "no fever" not in symptoms and "without fever" not in symptoms:
-        enriched.setdefault("patient_has_fever", True)
-        enriched.setdefault("fever_present", True)
-    return enriched
+    """Source-schema facts are extracted once at triage, never via disease regex."""
+    facts = patient.get("_structured_facts") or {}
+    return {**patient, **facts} if isinstance(facts, dict) else dict(patient)
 
 
 STAGE_TO_KEY = {

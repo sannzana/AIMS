@@ -264,9 +264,10 @@ def main() -> None:
         try:
             from retrieve import retrieve_category
             if st.session_state.get("case_mode") == "improved":
-                from patient_features import rank_diseases
-                ranking = rank_diseases(patient, cards)
+                from disease_triage import triage
+                ranking = triage(patient, cards)
                 st.session_state["diagnosis_ranking"] = ranking
+                st.session_state["structured_patient_facts"] = ranking.get("features", {})
                 names = [item["disease"] for item in ranking["candidates"]]
             else:
                 diagnosis_hits = retrieve_category(patient, "Diagnosis", top_k=6,
@@ -284,7 +285,9 @@ def main() -> None:
                     ], "evidence_card_ids": [], "notice": "No clinically supported disease candidate."}
                 else:
                     diagnosis = recommend_section(
-                        patient, "Diagnosis", mode=st.session_state.get("case_mode", "improved"),
+                        {**patient, "_structured_facts": ranking.get("features", {})}
+                        if st.session_state.get("case_mode") == "improved" else patient,
+                        "Diagnosis", mode=st.session_state.get("case_mode", "improved"),
                         cards=cards, persist_dir=INDEX_PATH, diseases=names[:2] or None,
                         diagnosis_card_ids=([item["card_id"] for item in ranking["candidates"]]
                                             if st.session_state.get("case_mode") == "improved"
@@ -344,7 +347,9 @@ def main() -> None:
                 diseases = [chosen]
             with st.spinner("Generating evidence-grounded management plan..."):
                 st.session_state["case_results"]["Management"] = recommend_management(
-                    patient, mode=st.session_state.get("case_mode", "improved"),
+                    {**patient, "_structured_facts": st.session_state.get("structured_patient_facts", {})}
+                    if st.session_state.get("case_mode") == "improved" else patient,
+                    mode=st.session_state.get("case_mode", "improved"),
                     cards=cards, persist_dir=INDEX_PATH, diseases=diseases)
         output = st.session_state["case_results"]["Management"]
         st.subheader("Treatment & Management Plan")
