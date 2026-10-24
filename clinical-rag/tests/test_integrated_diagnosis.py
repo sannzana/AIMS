@@ -33,3 +33,23 @@ def test_both_symptom_sets_can_remain_ambiguous():
            "B":card("B","Disease B","fever, rash, joint pain")}
     result=rank_diseases({"symptoms":"fever, rash, headache and joint pain"},cards)
     assert result["status"] == "ambiguous"
+
+def test_raised_blood_pressure_remains_clinically_searchable():
+    cards={"H":card("H","Pressure disorder","raised blood pressure assessment"),
+           "F":card("F","Fever disorder","fever and rash")}
+    patient={"measurements":"BP 162/98 mmHg", "symptoms":"morning dizziness"}
+    result=rank_diseases(patient,cards)
+    assert result["candidates"][0]["disease"] == "Pressure disorder"
+
+def test_single_generic_overlap_cannot_create_another_diagnosis():
+    cards={"A":card("A","Disease A","acute watery diarrhoea intense thirst"),
+           "B":card("B","Disease B","sudden fever arthralgia rash")}
+    patient={"symptoms":"Sudden acute watery diarrhoea intense thirst"}
+    result=rank_diseases(patient,cards)
+    assert result["status"] == "clear"
+    assert len(result["candidates"]) == 1
+
+def test_duration_and_age_cannot_create_disease_match():
+    cards={"A":card("A","Disease A","12 days fever age 38 years")}
+    result=rank_diseases({"age":38,"duration":"12 hours","symptoms":"isolated toothache"},cards)
+    assert result["status"] == "no_match"

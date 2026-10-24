@@ -86,6 +86,10 @@ def rank_diseases(patient: dict[str, Any], cards: dict[str, Any]) -> dict[str, A
     # Numerical observations are represented by typed rule fields, never bare terms.
     if features.get("temperature_c") is not None and features["temperature_c"] >= 38:
         terms.add("fever")
+    if features.get("sbp_mmhg") is not None:
+        terms.update({"blood", "pressure"})
+        if features["sbp_mmhg"] >= 140 or features.get("dbp_mmhg", 0) >= 90:
+            terms.add("raised")
     grouped: dict[str, list[tuple[str, set[str]]]] = {}
     for card in cards.values():
         if card.clinical_category != "Diagnosis" or assign_role(card) != "case_definition":
@@ -104,8 +108,15 @@ def rank_diseases(patient: dict[str, Any], cards: dict[str, Any]) -> dict[str, A
         best_terms: list[str] = []
         for card_id, criteria in definitions:
             matching = terms & criteria
-            value = sum(math.log(1 + (len(grouped) + 1) / (1 + frequency[t]))
-                        for t in matching)
+            # A single generic match (e.g. 'sudden') is not disease evidence.
+            # Coverage balances short and long case definitions, rather than
+            # making a longer list of symptoms automatically win.
+            if len(matching) < 2:
+                continue
+            coverage = len(matching) / max(1, len(criteria))
+            value = coverage + 0.01 * sum(
+                math.log(1 + (len(grouped) + 1) / (1 + frequency[t]))
+                for t in matching)
             if value > best_score:
                 best_score, best_card, best_terms = value, card_id, sorted(matching)
         if best_score:

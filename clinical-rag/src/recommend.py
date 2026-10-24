@@ -561,15 +561,20 @@ STAGE_TO_KEY = {
 def recommend_section(patient: dict[str, Any], stage: str, *, mode: str = "improved",
                       cards: dict[str, Card], persist_dir: Path = Path("data/index"),
                       diseases: list[str] | None = None,
-                      llm_generate: Callable[[str], str] = generate) -> dict[str, Any]:
+                      llm_generate: Callable[[str], str] = generate,
+                      diagnosis_card_ids: list[str] | None = None) -> dict[str, Any]:
     """One independently validated clinical section per bounded LLM request."""
     from retrieve import retrieve_category
     if stage not in STAGE_TO_KEY:
         raise ValueError(f"Unsupported clinical stage: {stage}")
     category = "Medication" if stage == "Treatment" else ("Diagnosis" if stage == "Diagnosis" else stage[:-1] if stage == "Investigations" else stage)
     requested = 4 if stage == "Diagnosis" else (4 if stage == "Investigations" else 3)
-    items = retrieve_category(patient, category, diseases=diseases,
-                              top_k=requested, persist_dir=persist_dir, cards=cards)
+    if mode == "improved" and stage == "Diagnosis" and diagnosis_card_ids is not None:
+        # Disease ranking already read case definitions; no second vector search.
+        items = [{"card_id": cid} for cid in diagnosis_card_ids if cid in cards]
+    else:
+        items = retrieve_category(patient, category, diseases=diseases,
+                                  top_k=requested, persist_dir=persist_dir, cards=cards)
     if mode == "improved" and stage == "Diagnosis":
         from card_roles import assign_role
         items = [hit for hit in items if hit.get("card_id") in cards

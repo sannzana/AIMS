@@ -285,7 +285,10 @@ def main() -> None:
                 else:
                     diagnosis = recommend_section(
                         patient, "Diagnosis", mode=st.session_state.get("case_mode", "improved"),
-                        cards=cards, persist_dir=INDEX_PATH, diseases=names[:2] or None)
+                        cards=cards, persist_dir=INDEX_PATH, diseases=names[:2] or None,
+                        diagnosis_card_ids=([item["card_id"] for item in ranking["candidates"]]
+                                            if st.session_state.get("case_mode") == "improved"
+                                            else None))
                 st.session_state["case_results"]["Diagnosis"] = diagnosis
                 st.session_state["case_diseases"] = (
                     management_disease_choices(diagnosis, cards)
