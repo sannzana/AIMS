@@ -101,7 +101,8 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         return (
             "Match the patient's described clinical meaning to the provided case "
             "definitions. Return JSON only. Negated observations are NOT positive support. "
-            "Missing findings, unasked questions, and unknown status are UNKNOWN, never false. "
+            "Respect NEGATION scope. Missing findings, unasked questions, and unknown status "
+            "are UNKNOWN, never false. "
             "Use contradicted ONLY when an explicit patient statement directly conflicts "
             "with a criterion; include the exact conflicting patient wording in "
             "contradiction_quotes. If a required fact is missing or unknown, use uncertain. "
