@@ -703,9 +703,13 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
             "notice": "Improved management requires one selected disease.",
         }
     chosen = []
+    retrieval_trace: dict[str, list[str]] = {}
     for category, count in (("Investigation", 2), ("Medication", 2), ("Advice", 2)):
         hits = retrieve_category(patient, category, diseases=diseases,
                                  top_k=count, persist_dir=persist_dir, cards=cards)
+        retrieval_trace[category] = [
+            str(hit.get("card_id")) for hit in hits if hit.get("card_id")
+        ]
         chosen.extend(
             cards[hit["card_id"]] for hit in hits
             if hit.get("card_id") in cards
@@ -713,12 +717,28 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         )
     chosen = list({card.card_id: card for card in chosen}.values())
     result = {key: [] for key in STAGE_TO_KEY.values()}
-    result.update({"missing_info": [], "evidence_card_ids": [], "stage": "Management"})
+    result.update({
+        "missing_info": [], "evidence_card_ids": [], "stage": "Management",
+        "management_diagnostics": {
+            "retrieved_card_ids_by_category": retrieval_trace,
+            "chosen_card_ids": [card.card_id for card in chosen],
+            "not_applicable_card_ids": [],
+            "applicability_by_card": {},
+            "prompt_card_ids": [],
+            "schema_rejections": [],
+            "validation_rejections": [],
+            "generated_item_counts": {},
+        },
+    })
     prepared = []
     ctx = _structured_patient_context(patient)
     for card in chosen:
         applicability = card_rule_applicability(card, ctx)
+        result["management_diagnostics"]["applicability_by_card"][card.card_id] = (
+            applicability.get("status", "unknown") if applicability else "no_structured_rule"
+        )
         if mode == "improved" and applicability and applicability.get("status") == "not_applicable":
+            result["management_diagnostics"]["not_applicable_card_ids"].append(card.card_id)
             continue
         entry = _prompt_card(card)
         # Retain all source rules and restrictions; one quoted passage per card
@@ -734,8 +754,12 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         if len(_prompt(patient, selected + [entry]).encode("utf-8")) <= 19000:
             selected.append(entry)
     result["evidence_card_ids"] = [x["card_id"] for x in selected]
+    result["management_diagnostics"]["prompt_card_ids"] = result["evidence_card_ids"]
     if not selected:
         result["notice"] = "No management evidence fits the request; clinical review needed."
+        result["management_diagnostics"]["generated_item_counts"] = {
+            "investigations": 0, "medication": 0, "advice": 0
+        }
         return result
     # The permitted evidence set is source-derived, not disease-name hardcoded.
     evidence_by_section = {
@@ -769,7 +793,9 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
     )
     allowed = {x["card_id"]: cards[x["card_id"]] for x in selected}
     try:
-        response, errors = _parse_response_partial(llm_generate(prompt))
+        raw_response = llm_generate(prompt)
+        response, errors = _parse_response_partial(raw_response)
+        result["management_diagnostics"]["schema_rejections"] = errors[:20]
         response.probable_diagnosis = []
         validated, rejected = _validate_output(response, allowed)
         if mode == "improved":
@@ -777,11 +803,19 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
                 validated, allowed, diseases[0]
             )
             rejected.extend(boundary_rejections)
+        result["management_diagnostics"]["validation_rejections"] = rejected[:20]
         output = _dump(validated)
         _attach_traceability(output, validated, allowed)
         result.update(output)
+        result["management_diagnostics"]["generated_item_counts"] = {
+            "investigations": len(result.get("investigations", [])),
+            "medication": len(result.get("medication", [])),
+            "advice": len(result.get("advice", [])),
+        }
         if errors or rejected:
             result["notice"] = "Rejected unsupported items: " + "; ".join((errors + rejected)[:4])
     except (LLMError, RecommendationError, ValueError) as exc:
         result["notice"] = f"Management generation unavailable: {exc}"
+        result["management_diagnostics"]["error_type"] = type(exc).__name__
+        result["management_diagnostics"]["error_message"] = str(exc)[:240]
     return result
