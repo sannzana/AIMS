@@ -161,20 +161,35 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     observed = _patient_text(patient).casefold()
     supported = []
     uncertain = []
+    decision_trace = {
+        "model_decisions": {"supported": 0, "uncertain": 0,
+                            "contradicted": 0, "invalid": 0},
+        "rejected_candidates": [],
+        "accepted_supported_card_ids": [],
+        "accepted_uncertain_card_ids": [],
+    }
     diagnostic_rejections = {"unknown_card": 0, "invalid_quotes": 0, "unusable_decision": 0}
     for entry in response.get("candidates", []):
+        decision = entry.get("decision") if isinstance(entry, dict) else None
+        if decision in decision_trace["model_decisions"] and decision != "invalid":
+            decision_trace["model_decisions"][decision] += 1
+        else:
+            decision_trace["model_decisions"]["invalid"] += 1
         if not isinstance(entry, dict) or entry.get("card_id") not in allowed:
             diagnostic_rejections["unknown_card"] += 1
+            decision_trace["rejected_candidates"].append({"reason": "unknown_card"})
             continue
         raw_quotes = entry.get("patient_quotes", [])
         if not isinstance(raw_quotes, list):
             diagnostic_rejections["invalid_quotes"] += 1
+            decision_trace["rejected_candidates"].append({"card_id": entry["card_id"], "reason": "invalid_quote_type"})
             continue
         quotes = [q.strip() for q in raw_quotes
                   if isinstance(q, str) and len(q.strip()) >= 3
                   and q.strip().casefold() in observed]
         if len(quotes) != len(raw_quotes):
             diagnostic_rejections["invalid_quotes"] += 1
+            decision_trace["rejected_candidates"].append({"card_id": entry["card_id"], "reason": "invalid_quote_match", "valid_count": len(quotes), "submitted_count": len(raw_quotes)})
             continue
         decision = entry.get("decision")
         card = allowed[entry["card_id"]]
@@ -182,10 +197,13 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
                 "matched_features": quotes, "missing": entry.get("missing", [])}
         if decision == "supported" and quotes:
             supported.append(item)
+            decision_trace["accepted_supported_card_ids"].append(card.card_id)
         elif decision == "uncertain":
             uncertain.append(item)
+            decision_trace["accepted_uncertain_card_ids"].append(card.card_id)
         else:
             diagnostic_rejections["unusable_decision"] += 1
+            decision_trace["rejected_candidates"].append({"card_id": card.card_id, "reason": "unsupported_decision_or_no_quotes"})
     # Preserve disease diversity, not multiple cards of the same protocol.
     def unique(values):
         found = {}
@@ -204,6 +222,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
                    "failed_llm_batches": len(failures),
                    "model_candidate_count": len(response.get("candidates", [])),
                    "rejections": diagnostic_rejections,
+                   "decision_trace": decision_trace,
                    "verified_fact_count": len(facts),
                    "rejected_fact_count": len(rejected_facts)}
     return {"status": status, "candidates": candidates, "features": facts,
