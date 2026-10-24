@@ -392,6 +392,13 @@ def main() -> None:
         st.subheader("Treatment & Management Plan")
         if output.get("notice"):
             st.warning(output["notice"])
+        if output.get("missing_info"):
+            with st.expander("Missing management information"):
+                for detail in output["missing_info"]:
+                    st.write(f"- {detail}")
+        if output.get("management_diagnostics"):
+            with st.expander("Management pipeline diagnostics (no patient text)"):
+                st.json(output["management_diagnostics"])
         for section, key in (("Investigations", "investigations"), ("Treatment", "medication"), ("Advice", "advice")):
             st.markdown(f"### {section}")
             items = output.get(key, [])
