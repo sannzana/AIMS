@@ -46,7 +46,7 @@ def test_llm_transport_event_without_credentials(monkeypatch, tmp_path):
     else:
         raise AssertionError("Must propagate transport failure")
     entry = json.loads(target.read_text().strip())
-    assert entry["outcome"] == "transport_error"
+    assert entry["outcome"] == "connection_reset"
     assert "PRIVATE" not in target.read_text()
     assert "patient" not in target.read_text()
 
