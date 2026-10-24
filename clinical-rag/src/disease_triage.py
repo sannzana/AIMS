@@ -184,13 +184,42 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             diagnostic_rejections["invalid_quotes"] += 1
             decision_trace["rejected_candidates"].append({"card_id": entry["card_id"], "reason": "invalid_quote_type"})
             continue
-        quotes = [q.strip() for q in raw_quotes
-                  if isinstance(q, str) and len(q.strip()) >= 3
-                  and q.strip().casefold() in observed]
-        if len(quotes) != len(raw_quotes):
-            diagnostic_rejections["invalid_quotes"] += 1
-            decision_trace["rejected_candidates"].append({"card_id": entry["card_id"], "reason": "invalid_quote_match", "valid_count": len(quotes), "submitted_count": len(raw_quotes)})
-            continue
+        # Validate each quote independently: a single paraphrased/invalid quote
+        # must not erase other literal, valid patient evidence.
+        patient_source = _patient_text(patient)
+        def normalize_quote(value: str) -> str:
+            return " ".join(__import__("re").findall(r"[a-z0-9]+|[\\u0980-\\u09ff]+", value.casefold()))
+        normalized_patient = normalize_quote(patient_source)
+        quotes = []
+        invalid_quote_count = 0
+        negated_quote_count = 0
+        for raw_quote in raw_quotes:
+            if not isinstance(raw_quote, str) or len(raw_quote.strip()) < 3:
+                invalid_quote_count += 1
+                continue
+            quote = raw_quote.strip()
+            normalized_quote = normalize_quote(quote)
+            if not normalized_quote or normalized_quote not in normalized_patient:
+                invalid_quote_count += 1
+                continue
+            # Conservative local negation guard: don't count a positive-only
+            # quote as support when its nearby source clause explicitly negates it.
+            import re
+            escaped = re.escape(quote)
+            match = re.search(r"[^.!?;\\n]{0,70}\\b(?:no|not|without|denies|denied|negative for|absent|never)\\b[^.!?;\\n]{0,70}" + escaped, patient_source, re.I)
+            bangla_match = re.search(r"[^।;\\n]{0,50}" + escaped + r"[^।;\\n]{0,30}\\b(?:nei|nai|na)\\b", patient_source, re.I)
+            if match or bangla_match:
+                negated_quote_count += 1
+                continue
+            quotes.append(quote)
+        if invalid_quote_count:
+            diagnostic_rejections["invalid_quotes"] += invalid_quote_count
+        if invalid_quote_count or negated_quote_count:
+            decision_trace["rejected_candidates"].append({
+                "card_id": entry["card_id"], "reason": "partial_quote_rejection",
+                "valid_count": len(quotes), "invalid_count": invalid_quote_count,
+                "negated_count": negated_quote_count, "submitted_count": len(raw_quotes)
+            })
         decision = entry.get("decision")
         card = allowed[entry["card_id"]]
         item = {"disease": card.disease_protocol, "card_id": card.card_id,
