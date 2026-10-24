@@ -11,6 +11,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from telemetry import record_llm_request
+
 
 MODEL = "clinical-rag-model"
 TEMPERATURE = 0.0
@@ -55,18 +57,39 @@ def _json_request(url: str, payload: dict[str, Any], headers: dict[str, str]) ->
         headers={"Content-Type": "application/json", **headers},
         method="POST",
     )
+    started = time.perf_counter()
+    status = "ok"
+    http_status = None
+    token_usage = {}
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-            return json.loads(response.read().decode("utf-8"))
+            http_status = response.status
+            result = json.loads(response.read().decode("utf-8"))
+            if isinstance(result, dict):
+                usage = result.get("usage")
+                if isinstance(usage, dict):
+                    token_usage = {
+                        key: usage[key] for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+                        if type(usage.get(key)) is int and usage[key] >= 0
+                    }
+            return result
     except urllib.error.HTTPError as exc:
+        status = "http_error"
+        http_status = exc.code
         if exc.code == 429:
             delay = exc.headers.get("Retry-After", "") if exc.headers else ""
             raise LLMRateLimitError(delay) from exc
         raise LLMError(f"LLM provider returned HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+        status = "transport_error"
         raise LLMTransportError("LLM API transport failed or the remote connection was closed") from exc
     except json.JSONDecodeError as exc:
+        status = "invalid_json"
         raise LLMError("LLM provider returned invalid JSON") from exc
+    finally:
+        # Request metadata only; never persist payload, response text or headers.
+        record_llm_request(url, round((time.perf_counter() - started) * 1000, 1),
+                           status, http_status, token_usage)
 
 
 def _is_groq_endpoint(url: str) -> bool:
