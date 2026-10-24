@@ -44,3 +44,33 @@ def test_negation_is_in_prompt_and_no_numeric_cutoffs_in_module():
         return '{"candidates":[],"facts":{}}'
     triage({"symptoms":"no a symptom", "measurements":"test 17 units"}, cards, llm_generate=mock, candidate_search=lambda _p,c: list(c))
     assert "NEGATION" in seen[0] and "test 17 units" in seen[0]
+
+
+def test_diagnostics_trace_invalid_quote_without_patient_text():
+    cards={"a":card("a","Protocol Alpha","a symptom")}
+    mock=lambda _prompt: json.dumps({"candidates":[{"card_id":"a",
+        "decision":"supported","patient_quotes":["invented finding"],"missing":[]}],
+        "facts":{}})
+    got=triage({"symptoms":"a symptom"},cards,llm_generate=mock,
+               candidate_search=lambda _p,c:list(c))
+    trace=got["diagnostics"]["decision_trace"]
+    assert trace["model_decisions"]["supported"] == 1
+    assert trace["accepted_supported_card_ids"] == []
+    assert trace["rejected_candidates"] == [
+        {"card_id":"a","reason":"invalid_quote_match",
+         "valid_count":0,"submitted_count":1}
+    ]
+    assert "a symptom" not in json.dumps(trace)
+
+
+def test_diagnostics_trace_keeps_supported_card_when_quote_valid():
+    cards={"a":card("a","Protocol Alpha","a symptom")}
+    mock=lambda _prompt: json.dumps({"candidates":[{"card_id":"a",
+        "decision":"supported","patient_quotes":["a symptom"],"missing":[]}],
+        "facts":{}})
+    got=triage({"symptoms":"a symptom"},cards,llm_generate=mock,
+               candidate_search=lambda _p,c:list(c))
+    trace=got["diagnostics"]["decision_trace"]
+    assert trace["model_decisions"]["supported"] == 1
+    assert trace["accepted_supported_card_ids"] == ["a"]
+    assert trace["rejected_candidates"] == []
