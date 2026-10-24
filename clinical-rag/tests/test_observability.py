@@ -52,7 +52,13 @@ def test_llm_transport_event_without_credentials(monkeypatch, tmp_path):
 
 
 def test_retrieval_evaluator_reports_disease_ranks():
-    from tests.eval_pipeline import evaluate
+    import importlib.util
+    from pathlib import Path
+    script = Path(__file__).with_name("eval_pipeline.py")
+    spec = importlib.util.spec_from_file_location("local_eval_pipeline", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    evaluate = module.evaluate
     from types import SimpleNamespace
     cards = {"A": SimpleNamespace(disease_protocol="Alpha"),
              "B": SimpleNamespace(disease_protocol="Beta")}
