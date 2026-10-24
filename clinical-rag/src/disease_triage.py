@@ -192,6 +192,10 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         # A model assertion of "contradicted" is not enough by itself.
         # Require an exact patient quote whose local context explicitly marks
         # the finding absent/denied. Missing facts must remain uncertain.
+        patient_source = _patient_text(patient)
+        def normalize_conflict_text(value: str) -> str:
+            return " ".join(re.findall(r"[a-z0-9]+|[\u0980-\u09ff]+", value.casefold()))
+
         if decision == "contradicted":
             contradiction_quotes = entry.get("contradiction_quotes", [])
             explicit_contradiction = False
@@ -207,15 +211,15 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
                     # Accept an explicit denial in the quoted phrase or in its
                     # surrounding clause, e.g. quote="fever" in "no fever".
                     if re.search(
-                        r"\\b(?:no|not|without|denies|denied|negative for|absent|never)\\b|(?:নেই|নাই|না)",
+                        r"\b(?:no|not|without|denies|denied|negative for|absent|never)\b|(?:নেই|নাই|না)",
                         conflict_quote.casefold(),
                     ):
                         explicit_contradiction = True
                         break
                     for occurrence in re.finditer(re.escape(conflict_quote), patient_source, re.I):
-                        prefix = re.split(r"[.!?;\\n]", patient_source[:occurrence.start()])[-1].casefold()
-                        suffix = re.split(r"[.!?;\\n]", patient_source[occurrence.end():], maxsplit=1)[0].casefold()
-                        if re.search(r"\\b(?:no|not|without|denies|denied|negative for|absent|never)\\b", prefix) or re.search(r"(?:নেই|নাই|না)", suffix):
+                        prefix = re.split(r"[.!?;\n]", patient_source[:occurrence.start()])[-1].casefold()
+                        suffix = re.split(r"[.!?;\n]", patient_source[occurrence.end():], maxsplit=1)[0].casefold()
+                        if re.search(r"\b(?:no|not|without|denies|denied|negative for|absent|never)\b", prefix) or re.search(r"(?:নেই|নাই|না)", suffix):
                             explicit_contradiction = True
                             break
                     if explicit_contradiction:
