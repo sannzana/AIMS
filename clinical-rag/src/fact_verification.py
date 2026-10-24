@@ -123,3 +123,68 @@ def verify_boolean_facts(
         else:
             rejected[field] = "Polarity not independently confirmed"
     return accepted, rejected
+
+
+
+def verify_measurement_facts(
+    proposals: Any,
+    patient: dict[str, Any],
+    allowed: set[str],
+    verify_semantics,
+) -> tuple[dict[str, float | int | str], dict[str, str]]:
+    """Verify numerical field meaning, units and conflicting measurements.
+
+    Exact numeric occurrence is necessary but insufficient: e.g. a paired
+    measurement contains two numbers and their roles must not be swapped.
+    A separate model call judges the full context without inventing thresholds.
+    """
+    accepted: dict[str, float | int | str] = {}
+    rejected: dict[str, str] = {}
+    source = patient_text(patient)
+    if not isinstance(proposals, dict):
+        return accepted, {"_facts": "Expected mapping"}
+    candidates = {}
+    for field, entry in proposals.items():
+        if field not in allowed or not isinstance(entry, dict):
+            continue
+        value, quote = entry.get("value"), entry.get("quote")
+        if isinstance(value, bool) or not isinstance(value, (float, int)):
+            continue
+        if not isinstance(quote, str) or len(quote.strip()) < 3 or quote.strip().casefold() not in source.casefold():
+            rejected[field] = "Numeric evidence quote unavailable"
+            continue
+        if not any(float(match.group()) == float(value) for match in NUMBER.finditer(quote)):
+            rejected[field] = "Numeric value absent from quote"
+            continue
+        candidates[field] = {"value": value, "quote": quote.strip()}
+    if not candidates:
+        return accepted, rejected
+    import json
+    prompt = (
+        "Independently validate quantitative clinical observations. You are not "
+        "diagnosing or interpreting medical thresholds. For every proposed "
+        "source-schema field, decide whether the patient clearly reported that "
+        "precise number FOR THAT FIELD, with compatible units and context. "
+        "A number occurring somewhere in a multi-number phrase is insufficient. "
+        "Check role/order, units, timepoints, contradictory measurements and "
+        "whether a value is historical, hypothetical, denied or unavailable. "
+        "If ambiguous or contradictory, mark uncertain. Never convert units "
+        "unless the source explicitly supports conversion. "
+        "Return strict JSON only: "
+        '{"decisions":{"source_field":"confirmed|rejected|uncertain"}}. '
+        "Do not introduce new fields.\nPATIENT:\n" + source
+        + "\nPROPOSED MEASUREMENTS:\n" + json.dumps(candidates, ensure_ascii=False)
+    )
+    try:
+        result = json.loads(verify_semantics(prompt))
+        decisions = result.get("decisions", {})
+        if not isinstance(decisions, dict):
+            raise ValueError("Invalid verifier response")
+    except (ValueError, TypeError, KeyError, RuntimeError):
+        return {}, {**rejected, **{field: "Measurement verification unavailable" for field in candidates}}
+    for field, entry in candidates.items():
+        if decisions.get(field) == "confirmed":
+            accepted[field] = entry["value"]
+        else:
+            rejected[field] = "Measurement context, units or consistency not confirmed"
+    return accepted, rejected
