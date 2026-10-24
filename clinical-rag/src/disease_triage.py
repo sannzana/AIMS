@@ -71,6 +71,33 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             "criteria": raw.get("relevant_symptoms_or_prerequisites") or "",
             "logic": raw.get("conditions_decision_logic") or [],
         })
+    # Severity/history cards are supporting evidence for a disease protocol,
+    # not independent disease candidates. Keep them out of candidate IDs but
+    # include their source rules so the model can apply the case definition's
+    # linked branches (e.g. cholera severe-dehydration criteria).
+    supporting_by_protocol: dict[str, list[dict[str, Any]]] = {}
+    for source_card in cards.values():
+        role = assign_role(source_card)
+        if role not in {"severity", "history_taking"}:
+            continue
+        protocol = str(getattr(source_card, "disease_protocol", "") or "").strip()
+        if not protocol:
+            continue
+        raw_source = _raw(source_card)
+        supporting_by_protocol.setdefault(protocol, []).append({
+            "id": source_card.card_id,
+            "protocol": protocol,
+            "role": role,
+            "title": getattr(source_card, "card_title", ""),
+            "criteria": raw_source.get("relevant_symptoms_or_prerequisites") or "",
+            "logic": raw_source.get("conditions_decision_logic") or [],
+            "evidence": [
+                item.get("passage", "")
+                for item in (raw_source.get("exact_supporting_evidence_passages") or [])
+                if isinstance(item, dict) and item.get("passage")
+            ][:4],
+        })
+
     # All source field names are discovered across the entire evidence corpus.
     fields = sorted(rule_fields(cards))
     # Retrieve relevant case definitions first; avoid overflowing the LLM with the entire corpus.
@@ -97,11 +124,25 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     # Candidate selection should not request hundreds of unrelated fact fields.
     # Keep fact extraction optional; evidence scoring is the primary task.
     def build_prompt(batch):
+        protocols = {str(item.get("protocol") or "").strip() for item in batch}
+        supporting = [
+            card
+            for protocol in protocols
+            for card in supporting_by_protocol.get(protocol, [])
+        ]
+        # A supporting card can explain a branch condition, but it must never
+        # be returned as the disease candidate itself.
+        source_fields = sorted(_fields(batch).union(_fields(supporting)))
         return (
             "Match the patient's described clinical meaning to the provided case "
             "definitions. Return JSON only. Negated observations are NOT positives; "
             "missing findings are unknown, never false. Respect NEGATION scope. Avoid unsupported diagnosis. "
             "Respect source criteria and preserve possible comorbidities. "
+            "Only CASE DEFINITION card IDs may be returned in candidates. "
+            "SUPPORTING ASSESSMENT CARDS are context only, not candidate IDs. "
+            "Use their source rules to evaluate linked severity/assessment conditions "
+            "only when explicit patient findings support those conditions; never assume "
+            "unknown outbreak status or other missing facts. "
             'JSON format: {"candidates":[{"card_id":"ID",'
             '"decision":"supported|uncertain|contradicted",'
             '"patient_quotes":["exact source quote"],"missing":[]}],'
@@ -109,8 +150,9 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             "Facts must come from source field names; for a real observation "
             "replace null with its explicit scalar value. Do not invent data. "
             "\\nPATIENT:\\n" + _patient_text(patient)
-            + "\\nSOURCE FIELDS:\\n" + json.dumps(sorted(_fields(batch)))
-            + "\\nCASE CARDS:\\n" + json.dumps(batch, ensure_ascii=False)
+            + "\\nSOURCE FIELDS:\\n" + json.dumps(source_fields)
+            + "\\nCASE DEFINITION CARDS:\\n" + json.dumps(batch, ensure_ascii=False)
+            + "\\nSUPPORTING ASSESSMENT CARDS:\\n" + json.dumps(supporting, ensure_ascii=False)
         )
 
     batches = []
@@ -269,7 +311,13 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         candidates = unique(uncertain)
     status = ("clear" if len(candidates) == 1 and supported else
               "ambiguous" if candidates else "unavailable" if failures else "no_match")
+    shortlist_protocols = {str(item.get("protocol") or "").strip() for item in shortlist}
     diagnostics = {"retrieved_card_ids": sorted(selected_ids),
+                   "supporting_assessment_card_ids": sorted({
+                       item["id"]
+                       for protocol in shortlist_protocols
+                       for item in supporting_by_protocol.get(protocol, [])
+                   }),
                    "case_definition_count": len(definitions),
                    "shortlist_count": len(shortlist),
                    "llm_batches": len(batches), "successful_llm_batches": len(responses),
