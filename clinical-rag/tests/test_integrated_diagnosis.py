@@ -1,97 +1,72 @@
-"""Offline regression tests for single-pass improved diagnosis candidate selection."""
+"""Regression tests for source-grounded triage without legacy keyword ranking."""
+import json
 from types import SimpleNamespace
-from patient_features import extract_patient_features, rank_diseases
 
-def card(cid, disease, criteria):
-    return SimpleNamespace(card_id=cid, disease_protocol=disease,
+from disease_triage import triage
+from patient_features import diagnostic_query, extract_patient_features
+
+
+def card(cid, disease, criteria, logic=None):
+    return SimpleNamespace(
+        card_id=cid, disease_protocol=disease,
         clinical_category="Diagnosis", card_title="Clinical Case Definition",
         clinical_classification_presentation=None,
-        relevant_symptoms_or_prerequisites=criteria,
-        model_dump=lambda: {"clinical_category":"Diagnosis",
-          "card_title":"Clinical Case Definition",
-          "clinical_classification_presentation": None})
-
-def test_units_are_not_interchanged():
-    assert extract_patient_features({"duration":"12 hours", "age":38})["days_since_illness_onset"] == 0.5
-    assert extract_patient_features({"duration":"12 days", "age":38})["days_since_illness_onset"] == 12
-
-def test_strong_watery_diarrhoea_does_not_become_joint_fever_case():
-    cards = {"A": card("A","Waterborne disease","acute watery diarrhoea, intense thirst and dehydration"),
-             "B": card("B","Febrile joint disease","sudden fever, severe joint pain and swollen joints")}
-    patient = {"symptoms":"Sudden acute watery diarrhoea, intense thirst and dehydration",
-               "duration":"12 hours", "age":38}
-    outcome = rank_diseases(patient,cards)
-    assert outcome["status"]=="clear"
-    assert [v["disease"] for v in outcome["candidates"]]==["Waterborne disease"]
-
-def test_weak_unrelated_findings_produce_no_match():
-    cards={"A":card("A","Disease A","fever, headache, arthralgia")}
-    assert rank_diseases({"symptoms":"isolated toothache"},cards)["status"]=="no_match"
-
-def test_both_symptom_sets_can_remain_ambiguous():
-    cards={"A":card("A","Disease A","fever, rash, headache"),
-           "B":card("B","Disease B","fever, rash, joint pain")}
-    result=rank_diseases({"symptoms":"fever, rash, headache and joint pain"},cards)
-    assert result["status"] == "ambiguous"
-
-def test_raised_blood_pressure_remains_clinically_searchable():
-    cards={"H":card("H","Pressure disorder","raised blood pressure assessment"),
-           "F":card("F","Fever disorder","fever and rash")}
-    patient={"measurements":"BP 162/98 mmHg", "symptoms":"morning dizziness"}
-    result=rank_diseases(patient,cards)
-    assert result["candidates"][0]["disease"] == "Pressure disorder"
-
-def test_single_generic_overlap_cannot_create_another_diagnosis():
-    cards={"A":card("A","Disease A","acute watery diarrhoea intense thirst"),
-           "B":card("B","Disease B","sudden fever arthralgia rash")}
-    patient={"symptoms":"Sudden acute watery diarrhoea intense thirst"}
-    result=rank_diseases(patient,cards)
-    assert result["status"] == "clear"
-    assert len(result["candidates"]) == 1
-
-def test_duration_and_age_cannot_create_disease_match():
-    cards={"A":card("A","Disease A","12 days fever age 38 years")}
-    result=rank_diseases({"age":38,"duration":"12 hours","symptoms":"isolated toothache"},cards)
-    assert result["status"] == "no_match"
-
-def test_negated_fever_and_joint_pain_do_not_support_diagnosis():
-    cards={"A":card("A","Febrile arthralgia","fever and joint pain rash"),
-           "B":card("B","Gastrointestinal illness","acute watery diarrhoea intense thirst")}
-    case={"symptoms":"Acute watery diarrhoea, intense thirst; no fever, no joint pain"}
-    result=rank_diseases(case,cards)
-    assert result["candidates"][0]["disease"]=="Gastrointestinal illness"
-    assert all(c["disease"]!="Febrile arthralgia" for c in result["candidates"])
-
-def test_temperature_37_does_not_create_fever_and_unknown_stays_unknown():
-    out=extract_patient_features({"symptoms":"Watery diarrhoea","measurements":"Temperature 37°C"})
-    assert out.get("fever_present") is None
-    out2=extract_patient_features({"symptoms":"No fever; no rash"})
-    assert out2["fever_present"] is False and out2["rash_present"] is False
+        model_dump=lambda: {
+            "clinical_category":"Diagnosis",
+            "card_title":"Clinical Case Definition",
+            "clinical_classification_presentation":None,
+            "relevant_symptoms_or_prerequisites":criteria,
+            "conditions_decision_logic":logic or [],
+        })
 
 
-
-def test_low_bp_does_not_trigger_hypertension_diagnosis():
-    cards={
-        "CHO": card("CHO","Cholera","Acute watery diarrhoea, age and cholera outbreak status."),
-        "HTN": card("HTN","Hypertension","Assessment of a person with a raised or potentially raised blood pressure."),
-    }
-    patient={
-        "symptoms":"Sudden profuse watery rice-water diarrhoea, repeated vomiting, intense thirst, weakness, leg cramps",
-        "duration":"12 hours", "age":38, "sex":"Female",
-        "history":"Recently drank untreated water; no chronic diseases",
-        "clinical_findings":"Sunken eyes, dry mouth, reduced urine output, weak rapid pulse",
-        "measurements":"BP 90/60 mmHg, pulse 118 bpm, temperature 37°C",
-    }
-    result=rank_diseases(patient,cards)
-    assert result["status"]=="clear"
-    assert [x["disease"] for x in result["candidates"]]==["Cholera"]
+def test_no_fixed_disease_or_symptom_extractor():
+    assert extract_patient_features({"symptoms":"joint pain and rash"}) == {}
+    assert extract_patient_features({"_structured_facts":{"wbc_count":3800,"rash_present":False}}) == {
+        "wbc_count":3800, "rash_present":False}
 
 
-def test_high_bp_still_supports_hypertension():
-    cards={
-        "CHO": card("CHO","Cholera","Acute watery diarrhoea, age and cholera outbreak status."),
-        "HTN": card("HTN","Hypertension","Assessment of a person with a raised or potentially raised blood pressure."),
-    }
-    patient={"measurements":"BP 162/98 mmHg", "age":52, "symptoms":"morning headache"}
-    result=rank_diseases(patient,cards)
-    assert result["candidates"][0]["disease"]=="Hypertension"
+def test_measurements_preserved_for_semantic_triage():
+    assert "WBC 3800" in diagnostic_query({"measurements":"WBC 3800 /uL"})
+
+
+def test_model_cannot_invent_protocol():
+    cards={"A":card("A","Protocol A","acute symptoms")}
+    mock=lambda _:json.dumps({"candidates":[{"card_id":"unknown","decision":"supported",
+        "patient_quotes":["acute symptoms"],"missing":[]}],"facts":{}})
+    assert triage({"symptoms":"acute symptoms"},cards,llm_generate=mock)["candidates"]==[]
+
+
+def test_model_cannot_invent_symptom_quote():
+    cards={"A":card("A","Protocol A","acute symptoms")}
+    mock=lambda _:json.dumps({"candidates":[{"card_id":"A","decision":"supported",
+        "patient_quotes":["imaginary fever"],"missing":[]}],"facts":{}})
+    assert triage({"symptoms":"acute symptoms"},cards,llm_generate=mock)["candidates"]==[]
+
+
+def test_no_lexical_fallback_on_model_failure():
+    cards={"A":card("A","Protocol A","fever and rash")}
+    result=triage({"symptoms":"fever and rash"},cards,llm_generate=lambda _:"bad")
+    assert result["status"]=="unavailable"
+
+
+def test_source_rules_are_sent_without_python_threshold():
+    cards={"A":card("A","Protocol A","blood pressure",[
+        {"rule_id":"a1","condition":{"field":"sbp_mmhg","operator":">=","value":170}}])}
+    prompts=[]
+    def mock(prompt):
+        prompts.append(prompt)
+        return json.dumps({"candidates":[],"facts":{}})
+    triage({"measurements":"BP 180/95 mmHg"},cards,llm_generate=mock)
+    assert '"value": 170' in prompts[0]
+    assert "BP 180/95 mmHg" in prompts[0]
+
+
+def test_multiple_supported_diseases_are_preserved():
+    cards={"A":card("A","Protocol A","joint pain"),"B":card("B","Protocol B","rash")}
+    mock=lambda _:json.dumps({"candidates":[
+        {"card_id":"A","decision":"supported","patient_quotes":["joint pain"],"missing":[]},
+        {"card_id":"B","decision":"supported","patient_quotes":["rash"],"missing":[]}],"facts":{}})
+    result=triage({"symptoms":"joint pain and rash"},cards,llm_generate=mock)
+    assert result["status"]=="ambiguous"
+    assert len(result["candidates"])==2
