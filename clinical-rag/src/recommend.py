@@ -571,8 +571,6 @@ def recommend_section(patient: dict[str, Any], stage: str, *, mode: str = "impro
     # management evidence and a bounded safety/differential reference.
     # Safety guideline CHI-026 applies to suspected Chikungunya pending dengue exclusion.
     # Include it only where this protocol is a candidate, not for every patient.
-    if mode != "improved" and diseases and "Chikungunya" in diseases and "CHI-026" in cards:
-        selected.append(cards["CHI-026"])
     selected = list({c.card_id: c for c in selected}.values())
     if not selected:
         return {**{x: [] for x in STAGE_TO_KEY.values()}, "missing_info": [f"No {stage} evidence retrieved."], "stage": stage}
@@ -630,7 +628,7 @@ def recommend_section(patient: dict[str, Any], stage: str, *, mode: str = "impro
                         # Use the verified card's disease protocol as the display
                         # label; complications can still be discussed separately.
                         protocol = next(iter(protocols))
-                        item.text = "Suspected " + protocol
+                        # Preserve the model explanation; protocol comes from citations.
                         retained.append(item)
                     else:
                         rejected.append("Diagnosis lacked eligible single-disease evidence")
@@ -713,8 +711,6 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
             if hit.get("card_id") in cards
             and (mode != "improved" or cards[hit["card_id"]].disease_protocol == diseases[0])
         )
-    if mode != "improved" and diseases and "Chikungunya" in diseases and "CHI-026" in cards:
-        chosen.append(cards["CHI-026"])
     chosen = list({card.card_id: card for card in chosen}.values())
     result = {key: [] for key in STAGE_TO_KEY.values()}
     result.update({"missing_info": [], "evidence_card_ids": [], "stage": "Management"})
