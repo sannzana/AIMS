@@ -542,6 +542,7 @@ def test_api_request_uses_configured_key_and_user_agent(monkeypatch):
     ],
 )
 def test_groq_response_failures_are_explicit(monkeypatch, response, message):
+    monkeypatch.setenv("LLM_CACHE", "0")  # exercise mocked transport, never cached output
     monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
     monkeypatch.setenv("LLM_PROVIDER", "api")
     monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
