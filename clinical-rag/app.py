@@ -88,6 +88,23 @@ def recommendation_for_patient(
     )
 
 
+def management_disease_choices(diagnosis: dict[str, Any], cards: dict[str, Card]) -> list[str]:
+    """Use validated diagnosis evidence, never unrelated retrieval candidates."""
+    choices: list[str] = []
+    for item in diagnosis.get("probable_diagnosis", []):
+        protocols = {
+            cards[ref["card_id"]].disease_protocol
+            for ref in item.get("evidence", [])
+            if isinstance(ref, dict) and ref.get("card_id") in cards
+        }
+        # Mixed-protocol evidence needs clinician clarification, not auto-selection.
+        if len(protocols) == 1:
+            disease = next(iter(protocols))
+            if disease not in choices:
+                choices.append(disease)
+    return choices
+
+
 def _render_recommendation_item(st: Any, item: dict[str, Any]) -> None:
     st.markdown(f"**{item.get('text', 'Unspecified recommendation')}**")
     if item.get("reason"):
@@ -233,6 +250,7 @@ def main() -> None:
         st.session_state["case_diseases"] = []
         st.session_state["case_requested_stage"] = "Diagnosis"
         st.session_state["case_management_requested"] = False
+        st.session_state.pop("working_disease", None)
 
     if "case_patient" not in st.session_state:
         return
@@ -252,11 +270,16 @@ def main() -> None:
                 name = card.disease_protocol if card else None
                 if name in ("Dengue", "Chikungunya", "Cholera", "Hypertension") and name not in names:
                     names.append(name)
-            st.session_state["case_diseases"] = names[:2]
             with st.spinner("Reviewing diagnostic evidence..."):
-                st.session_state["case_results"]["Diagnosis"] = recommend_section(
+                diagnosis = recommend_section(
                     patient, "Diagnosis", mode=st.session_state.get("case_mode", "improved"),
                     cards=cards, persist_dir=INDEX_PATH, diseases=names[:2] or None)
+                st.session_state["case_results"]["Diagnosis"] = diagnosis
+                st.session_state["case_diseases"] = (
+                    management_disease_choices(diagnosis, cards)
+                    if st.session_state.get("case_mode") == "improved"
+                    else names[:2]
+                )
         except (RecommendationError, ImportError, OSError, RuntimeError, ValueError) as exc:
             st.error(f"Diagnosis unavailable: {exc}")
 
@@ -273,12 +296,33 @@ def main() -> None:
                     card = cards.get(cid)
                     if card:
                         st.write(f"{cid} — {getattr(card, 'card_title', '')} ({card.disease_protocol}), pages {card.pdf_page_numbers}")
-        if st.button("Generate Treatment & Management Plan", type="primary", key="generate_management"):
+        if st.session_state.get("case_mode") == "improved":
+            candidates = st.session_state.get("case_diseases", [])
+            if candidates:
+                st.selectbox(
+                    "Working diagnosis for management (clinician selection)",
+                    candidates, index=0 if len(candidates) == 1 else None,
+                    placeholder="Select a working diagnosis",
+                    key="working_disease",
+                )
+            else:
+                st.warning("No diagnosis with single-protocol evidence. Management is blocked pending review.")
+            can_generate = bool(st.session_state.get("working_disease") in candidates)
+        else:
+            can_generate = True
+        if st.button("Generate Treatment & Management Plan", type="primary",
+                     key="generate_management", disabled=not can_generate):
             st.session_state["case_management_requested"] = True
 
     if st.session_state.get("case_management_requested"):
         if "Management" not in st.session_state["case_results"]:
             diseases = st.session_state.get("case_diseases") or None
+            if st.session_state.get("case_mode") == "improved":
+                chosen = st.session_state.get("working_disease")
+                if chosen not in (diseases or []):
+                    st.error("Choose a supported working diagnosis before management.")
+                    return
+                diseases = [chosen]
             with st.spinner("Generating evidence-grounded management plan..."):
                 st.session_state["case_results"]["Management"] = recommend_management(
                     patient, mode=st.session_state.get("case_mode", "improved"),
