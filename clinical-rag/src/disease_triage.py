@@ -65,11 +65,34 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     concise = []
     for c in definitions:
         raw = _raw(c)
+        evidence = raw.get("exact_supporting_evidence_passages") or []
+        exceptions = raw.get("exceptions_contraindications") or []
+        branch_actions = raw.get("if_else_conditions_and_corresponding_actions") or []
         concise.append({
             "id": c.card_id,
             "protocol": c.disease_protocol,
             "criteria": raw.get("relevant_symptoms_or_prerequisites") or "",
+            "evidence": [
+                {"page": item.get("pdf_page"), "text": str(item.get("passage") or "")[:700]}
+                for item in evidence[:4] if isinstance(item, dict) and item.get("passage")
+            ],
             "logic": raw.get("conditions_decision_logic") or [],
+            "exceptions": [
+                {
+                    key: item.get(key)
+                    for key in ("condition", "interpretation", "action", "source_page")
+                    if item.get(key) is not None
+                }
+                for item in exceptions[:4] if isinstance(item, dict)
+            ],
+            "branches": [
+                {
+                    key: item.get(key)
+                    for key in ("if", "then", "rule_id")
+                    if item.get(key) is not None
+                }
+                for item in branch_actions[:4] if isinstance(item, dict)
+            ],
         })
     # All source field names are discovered across the entire evidence corpus.
     fields = sorted(rule_fields(cards))
@@ -99,21 +122,29 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     def build_prompt(batch):
         source_fields = sorted(_fields(batch))
         return (
-            "Match the patient's described clinical meaning to the provided case "
-            "definitions. Return JSON only. Negated observations are NOT positive support. "
-            "Respect NEGATION scope. Missing findings, unasked questions, and unknown status "
-            "are UNKNOWN, never false. "
-            "Use contradicted ONLY when an explicit patient statement directly conflicts "
-            "with a criterion; include the exact conflicting patient wording in "
-            "contradiction_quotes. If a required fact is missing or unknown, use uncertain. "
-            "Do not infer that an unmentioned symptom is absent. Avoid unsupported diagnosis. "
-            "Preserve plausible differential diagnoses and comorbidities. "
-            "Only CASE DEFINITION card IDs may be returned in candidates. "
+            "Evaluate every supplied CASE DEFINITION card and return exactly one "
+            "candidate entry for each supplied card ID. Do not return an empty candidates "
+            "array merely because a required criterion is unknown. "
+            "Use supported only when patient evidence supports the source rule; use "
+            "uncertain when the protocol is plausible but a required fact/branch is missing; "
+            "use contradicted only when the patient explicitly states a conflicting fact. "
+            "Negated observations are NOT positive support. Respect NEGATION scope. "
+            "Missing findings, unasked questions, and unknown status are UNKNOWN, never false. "
+            "Apply the supplied source evidence, decision logic, exceptions, and branches. "
+            "For a rule that depends on outbreak status, age, severity, or another field, "
+            "do not assume an unknown value. If one branch cannot be selected, retain the "
+            "case-definition candidate as uncertain and name the missing field. "
+            "Include at least one exact positive patient quote for supported decisions. "
+            "For contradicted decisions, include an exact conflicting patient quote in "
+            "contradiction_quotes. Do not infer that an unmentioned symptom is absent. "
+            "Avoid unsupported diagnosis; preserve plausible differential diagnoses. "
+            "Only CASE DEFINITION card IDs may be returned in candidates, and use each "
+            "provided ID at most once. "
             'JSON format: {"candidates":[{"card_id":"ID",'
             '"decision":"supported|uncertain|contradicted",'
             '"patient_quotes":["exact positive patient quote"],'
             '"contradiction_quotes":["exact explicitly conflicting patient quote"],'
-            '"missing":[]}],'
+            '"missing":["source field or criterion that is unknown"]}],'
             '"facts":{"field":{"value":null,"quote":"exact patient quote"}}}. '
             "Facts must come from source field names; only provide a value when the "
             "patient explicitly states it. Do not invent data. "
