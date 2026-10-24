@@ -649,12 +649,24 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
                          llm_generate: Callable[[str], str] = generate) -> dict[str, Any]:
     """Produce one grounded management response from category-specific cards."""
     from retrieve import retrieve_category
+    if mode == "improved" and (not diseases or len(diseases) != 1):
+        return {
+            **{key: [] for key in STAGE_TO_KEY.values()},
+            "missing_info": ["Select exactly one supported working diagnosis for management."],
+            "evidence_card_ids": [],
+            "stage": "Management",
+            "notice": "Improved management requires one selected disease.",
+        }
     chosen = []
     for category, count in (("Investigation", 2), ("Medication", 2), ("Advice", 2)):
         hits = retrieve_category(patient, category, diseases=diseases,
                                  top_k=count, persist_dir=persist_dir, cards=cards)
-        chosen.extend(cards[hit["card_id"]] for hit in hits if hit.get("card_id") in cards)
-    if diseases and "Chikungunya" in diseases and "CHI-026" in cards:
+        chosen.extend(
+            cards[hit["card_id"]] for hit in hits
+            if hit.get("card_id") in cards
+            and (mode != "improved" or cards[hit["card_id"]].disease_protocol == diseases[0])
+        )
+    if mode != "improved" and diseases and "Chikungunya" in diseases and "CHI-026" in cards:
         chosen.append(cards["CHI-026"])
     chosen = list({card.card_id: card for card in chosen}.values())
     result = {key: [] for key in STAGE_TO_KEY.values()}
