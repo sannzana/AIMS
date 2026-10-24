@@ -310,6 +310,9 @@ def main() -> None:
                        " (source-grounded triage status, not a diagnosis probability)")
         if output.get("notice"):
             st.warning(output["notice"])
+        if st.session_state.get("case_mode") == "improved":
+            with st.expander("Diagnostic pipeline diagnostics (no patient text)"):
+                st.json(st.session_state.get("diagnosis_ranking", {}).get("diagnostics", {}))
         for item in output.get("probable_diagnosis", []):
             _render_recommendation_item(st, item)
         if output.get("evidence_card_ids"):
