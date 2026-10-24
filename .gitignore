@@ -11,3 +11,6 @@
 /clinical-rag/PROPOSED_UNICODE_FIX.md
 /clinical-rag/data/card_development_notes.md
 /clinical-rag/data/*.backup
+
+# Local fictional-patient LLM response cache, never commit.
+/clinical-rag/.cache/
