@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from app import (
     _render_recommendations,
+    diagnosis_from_triage,
     applicability_for,
     patient_from_inputs,
     recommendation_for_patient,
@@ -132,3 +133,27 @@ def test_recommendation_renderer_shows_sections_citations_and_missing_info() -> 
     assert any("Probable dengue" in text for text in rendered)
     assert any("DEN-1" in text and "PDF page 12" in text for text in rendered)
     assert "Platelet count" in rendered
+
+
+def test_triage_candidate_displays_without_second_llm_call():
+    card = Card(
+        card_id="SRC-1", disease_protocol="Protocol Alpha",
+        clinical_category="Diagnosis", card_title="Clinical Case Definition",
+        source_pdf_title="Protocol", source_version_edition=None,
+        pdf_page_numbers=[4],
+        exact_supporting_evidence_passages=[{"pdf_page": 4, "passage": "Evidence"}],
+        verified=True,
+    )
+    ranking = {"candidates": [{"card_id": "SRC-1", "disease": "Protocol Alpha",
+             "matched_features": ["patient-reported finding"], "missing": []}]}
+    result = diagnosis_from_triage(ranking, {"SRC-1": card})
+    assert len(result["probable_diagnosis"]) == 1
+    assert result["probable_diagnosis"][0]["evidence"] == [
+        {"card_id": "SRC-1", "pdf_page": 4}]
+    assert "not confirmed" in result["probable_diagnosis"][0]["text"]
+
+
+def test_triage_display_rejects_invented_protocol():
+    ranking = {"candidates": [{"card_id": "missing", "disease": "Invented",
+              "matched_features": ["finding"]}]}
+    assert diagnosis_from_triage(ranking, {})["probable_diagnosis"] == []
