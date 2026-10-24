@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -19,6 +21,16 @@ GROQ_MAX_COMPLETION_TOKENS = 3000
 
 class LLMError(RuntimeError):
     """Raised when the configured provider cannot produce a response."""
+
+
+class LLMRateLimitError(LLMError):
+    """Provider rate limit; optional server-requested retry interval."""
+    def __init__(self, retry_after: str = ""):
+        super().__init__("LLM provider returned HTTP 429 (rate limit)")
+        try:
+            self.retry_after = min(20.0, max(0.0, float(retry_after)))
+        except (TypeError, ValueError):
+            self.retry_after = None
 
 
 def _load_dotenv(path: Path = Path(".env")) -> None:
@@ -43,6 +55,9 @@ def _json_request(url: str, payload: dict[str, Any], headers: dict[str, str]) ->
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            delay = exc.headers.get("Retry-After", "") if exc.headers else ""
+            raise LLMRateLimitError(delay) from exc
         raise LLMError(f"LLM provider returned HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError) as exc:
         raise LLMError("LLM request failed or timed out") from exc
@@ -80,6 +95,19 @@ def generate(prompt: str) -> str:
     _load_dotenv()
     provider = os.getenv("LLM_PROVIDER", "api").lower()
     model = os.getenv("LLM_MODEL", MODEL)
+    # Same patient and evidence may be requested repeatedly during an evaluation.
+    # Cache only successful outputs; do not store API keys or patient text in filenames.
+    cache_path = Path(os.getenv("LLM_CACHE_DIR", ".cache/llm_responses"))
+    cache_enabled = os.getenv("LLM_CACHE", "1") == "1"
+    cache_key = hashlib.sha256((provider + "\\0" + model + "\\0" + prompt).encode("utf-8")).hexdigest()
+    cache_file = cache_path / (cache_key + ".json")
+    if cache_enabled and cache_file.is_file():
+        try:
+            cached = json.loads(cache_file.read_text(encoding="utf-8"))
+            if isinstance(cached, str) and cached.strip():
+                return cached
+        except (ValueError, OSError):
+            pass
     if provider == "ollama":
         base_url = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
         payload = {
@@ -116,17 +144,28 @@ def generate(prompt: str) -> str:
                     "max_completion_tokens": GROQ_MAX_COMPLETION_TOKENS,
                 }
             )
-        data = _json_request(
-            base_url,
-            payload,
-            {
-                "Authorization": f"Bearer {api_key}",
-                "User-Agent": "AIMScribe-ClinicalRAG/0.1",
-            },
-        )
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": "AIMScribe-ClinicalRAG/0.1",
+        }
+        # Do not repeatedly retry 429: capped to two retries, honour Retry-After.
+        for attempt in range(3):
+            try:
+                data = _json_request(base_url, payload, headers)
+                break
+            except LLMRateLimitError as exc:
+                if attempt == 2:
+                    raise
+                time.sleep(exc.retry_after if exc.retry_after is not None else 2 ** attempt)
         text = _api_text(data)
     else:
         raise LLMError("LLM_PROVIDER must be 'api' or 'ollama'")
     if not isinstance(text, str) or not text.strip():
         raise LLMError("LLM provider returned empty text")
+    if cache_enabled:
+        try:
+            cache_path.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps(text), encoding="utf-8")
+        except OSError:
+            pass
     return text
