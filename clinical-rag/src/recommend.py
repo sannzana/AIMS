@@ -640,6 +640,11 @@ def recommend_section(patient: dict[str, Any], stage: str, *, mode: str = "impro
                     protocols = {group_cards[ref.card_id].disease_protocol
                                  for ref in item.evidence if ref.card_id in group_cards}
                     if len(protocols) == 1 and (not diseases or next(iter(protocols)) in diseases):
+                        # The model may describe shock/severity as the disease.
+                        # Use the verified card's disease protocol as the display
+                        # label; complications can still be discussed separately.
+                        protocol = next(iter(protocols))
+                        item.text = "Suspected " + protocol
                         retained.append(item)
                     else:
                         rejected.append("Diagnosis lacked eligible single-disease evidence")

@@ -126,10 +126,11 @@ def rank_diseases(patient: dict[str, Any], cards: dict[str, Any]) -> dict[str, A
     query = diagnostic_query(patient)
     terms = _observed_terms(patient, features)
     # Numerical observations are represented by typed rule fields, never bare terms.
-    if features.get("sbp_mmhg") is not None:
-        terms.update({"blood", "pressure"})
-        if features["sbp_mmhg"] >= 140 or features.get("dbp_mmhg", 0) >= 90:
-            terms.add("raised")
+    # Only ELEVATED observed pressure may support a raised-BP case definition.
+    # Hypotension, normal readings and isolated BP mentions are not hypertension.
+    if ((features.get("sbp_mmhg") is not None and features["sbp_mmhg"] >= 140)
+            or (features.get("dbp_mmhg") is not None and features["dbp_mmhg"] >= 90)):
+        terms.update({"blood", "pressure", "raised"})
     grouped: dict[str, list[tuple[str, set[str]]]] = {}
     for card in cards.values():
         if card.clinical_category != "Diagnosis" or assign_role(card) != "case_definition":

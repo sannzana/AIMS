@@ -67,3 +67,31 @@ def test_temperature_37_does_not_create_fever_and_unknown_stays_unknown():
     assert out.get("fever_present") is None
     out2=extract_patient_features({"symptoms":"No fever; no rash"})
     assert out2["fever_present"] is False and out2["rash_present"] is False
+
+
+
+def test_low_bp_does_not_trigger_hypertension_diagnosis():
+    cards={
+        "CHO": card("CHO","Cholera","Acute watery diarrhoea, age and cholera outbreak status."),
+        "HTN": card("HTN","Hypertension","Assessment of a person with a raised or potentially raised blood pressure."),
+    }
+    patient={
+        "symptoms":"Sudden profuse watery rice-water diarrhoea, repeated vomiting, intense thirst, weakness, leg cramps",
+        "duration":"12 hours", "age":38, "sex":"Female",
+        "history":"Recently drank untreated water; no chronic diseases",
+        "clinical_findings":"Sunken eyes, dry mouth, reduced urine output, weak rapid pulse",
+        "measurements":"BP 90/60 mmHg, pulse 118 bpm, temperature 37°C",
+    }
+    result=rank_diseases(patient,cards)
+    assert result["status"]=="clear"
+    assert [x["disease"] for x in result["candidates"]]==["Cholera"]
+
+
+def test_high_bp_still_supports_hypertension():
+    cards={
+        "CHO": card("CHO","Cholera","Acute watery diarrhoea, age and cholera outbreak status."),
+        "HTN": card("HTN","Hypertension","Assessment of a person with a raised or potentially raised blood pressure."),
+    }
+    patient={"measurements":"BP 162/98 mmHg", "age":52, "symptoms":"morning headache"}
+    result=rank_diseases(patient,cards)
+    assert result["candidates"][0]["disease"]=="Hypertension"
