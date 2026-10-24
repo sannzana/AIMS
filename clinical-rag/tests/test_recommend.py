@@ -432,6 +432,7 @@ def test_structured_rules_use_applicability_in_improved_mode():
 
 
 def test_groq_request_uses_json_and_low_reasoning_configuration(monkeypatch):
+    monkeypatch.setenv("LLM_CACHE", "0")  # assert actual mocked transport arguments
     monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
     monkeypatch.setenv("LLM_PROVIDER", "api")
     monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
@@ -500,6 +501,7 @@ def test_missing_api_key(monkeypatch):
 
 
 def test_api_request_uses_configured_key_and_user_agent(monkeypatch):
+    monkeypatch.setenv("LLM_CACHE", "0")  # assert actual mocked transport arguments
     monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
     monkeypatch.setenv("LLM_PROVIDER", "api")
     monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
