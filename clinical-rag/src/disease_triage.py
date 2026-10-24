@@ -82,7 +82,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             engine = Retriever(cards=cards)
             hits = engine.search(
                 clinical_query(patient), category="Diagnosis",
-                roles={"case_definition"}, n=20,
+                roles={"case_definition"}, n=8,
             )
             selected_ids = {hit["card_id"] for hit in hits}
         shortlist = [entry for entry in concise if entry["id"] in selected_ids]
@@ -93,7 +93,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         return {"status": "no_match", "candidates": [], "features": {},
                 "notice": "No case-definition evidence retrieved."}
 
-    def build_prompt(batch):
+    # Candidate selection should not request hundreds of unrelated fact fields.\n    # Keep fact extraction optional; evidence scoring is the primary task.\n    def build_prompt(batch):
         return (
             "Match the patient's described clinical meaning to the provided case "
             "definitions. Return JSON only. Negated observations are NOT positives; "
@@ -106,7 +106,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             "Facts must come from source field names; for a real observation "
             "replace null with its explicit scalar value. Do not invent data. "
             "\\nPATIENT:\\n" + _patient_text(patient)
-            + "\\nSOURCE FIELDS:\\n" + json.dumps(fields)
+            + "\\nSOURCE FIELDS:\\n" + json.dumps(sorted(_fields(batch)))
             + "\\nCASE CARDS:\\n" + json.dumps(batch, ensure_ascii=False)
         )
 
@@ -194,7 +194,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     if not candidates:
         candidates = unique(uncertain)
     status = ("clear" if len(candidates) == 1 and supported else
-              "ambiguous" if candidates else "no_match")
+              "ambiguous" if candidates else "unavailable" if failures else "no_match")
     diagnostics = {"retrieved_card_ids": sorted(selected_ids),
                    "case_definition_count": len(definitions),
                    "shortlist_count": len(shortlist),
@@ -206,4 +206,4 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
                    "rejected_fact_count": len(rejected_facts)}
     return {"status": status, "candidates": candidates, "features": facts,
             "diagnostics": diagnostics, "rejected_facts": rejected_facts,
-            "notice": None if supported else "Insufficient verified diagnostic evidence."}
+            "notice": None if supported else ("Model batch failed: " + "; ".join(failures[:2]) if failures else "No supported candidate returned by the model.")}
