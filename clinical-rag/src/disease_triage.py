@@ -97,7 +97,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         return (
             "Match the patient's described clinical meaning to the provided case "
             "definitions. Return JSON only. Negated observations are NOT positives; "
-            "missing findings are unknown, never false. Avoid unsupported diagnosis. "
+            "missing findings are unknown, never false. Respect NEGATION scope. Avoid unsupported diagnosis. "
             "Respect source criteria and preserve possible comorbidities. "
             'JSON format: {"candidates":[{"card_id":"ID",'
             '"decision":"supported|uncertain|contradicted",'
