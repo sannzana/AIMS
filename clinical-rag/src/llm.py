@@ -99,7 +99,9 @@ def generate(prompt: str) -> str:
     # Cache only successful outputs; do not store API keys or patient text in filenames.
     cache_path = Path(os.getenv("LLM_CACHE_DIR", ".cache/llm_responses"))
     cache_enabled = os.getenv("LLM_CACHE", "1") == "1"
-    cache_key = hashlib.sha256((provider + "\\0" + model + "\\0" + prompt).encode("utf-8")).hexdigest()
+    endpoint = (os.getenv("LLM_API_URL", "https://api.openai.com/v1/chat/completions")
+                if provider == "api" else os.getenv("OLLAMA_URL", "http://localhost:11434"))
+    cache_key = hashlib.sha256(json.dumps([provider, endpoint, model, prompt], ensure_ascii=False).encode("utf-8")).hexdigest()
     cache_file = cache_path / (cache_key + ".json")
     if cache_enabled and cache_file.is_file():
         try:
