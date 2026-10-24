@@ -1,7 +1,7 @@
 """Offline checks for generic source facts and provenance."""
 from types import SimpleNamespace
 
-from fact_verification import rule_fields, verify_facts, verify_boolean_facts
+from fact_verification import rule_fields, verify_facts, verify_boolean_facts, verify_measurement_facts
 
 
 def test_source_rule_fields_are_discovered_without_disease_names():
@@ -100,3 +100,25 @@ def test_model_cannot_introduce_boolean_for_unknown_field():
         lambda _: '{"decisions":{"not_in_source":"confirmed"}}'
     )
     assert values == {}
+
+
+def test_measurement_requires_independent_context_confirmation():
+    proposals = {"first_measurement": {"value": 110, "quote": "110/70"},
+                 "second_measurement": {"value": 70, "quote": "110/70"}}
+    patient = {"measurements": "110/70"}
+    def verify(prompt):
+        return '{"decisions":{"first_measurement":"confirmed","second_measurement":"uncertain"}}'
+    facts, rejected = verify_measurement_facts(
+        proposals, patient, {"first_measurement", "second_measurement"}, verify)
+    assert facts == {"first_measurement": 110}
+    assert "second_measurement" in rejected
+
+
+def test_measurement_verification_failure_is_unknown():
+    def unavailable(_):
+        raise RuntimeError("LLM unavailable")
+    facts, rejected = verify_measurement_facts(
+        {"measurement": {"value": 17, "quote": "result 17"}},
+        {"measurements": "result 17"}, {"measurement"}, unavailable)
+    assert facts == {}
+    assert "measurement" in rejected
