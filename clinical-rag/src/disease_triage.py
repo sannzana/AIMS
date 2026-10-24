@@ -93,7 +93,9 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         return {"status": "no_match", "candidates": [], "features": {},
                 "notice": "No case-definition evidence retrieved."}
 
-    # Candidate selection should not request hundreds of unrelated fact fields.\n    # Keep fact extraction optional; evidence scoring is the primary task.\n    def build_prompt(batch):
+    # Candidate selection should not request hundreds of unrelated fact fields.
+    # Keep fact extraction optional; evidence scoring is the primary task.
+    def build_prompt(batch):
         return (
             "Match the patient's described clinical meaning to the provided case "
             "definitions. Return JSON only. Negated observations are NOT positives; "
