@@ -247,6 +247,7 @@ def main() -> None:
         )
         st.session_state["case_mode"] = mode
         st.session_state["case_results"] = {}
+        st.session_state.pop("diagnosis_ranking", None)
         st.session_state["case_diseases"] = []
         st.session_state["case_requested_stage"] = "Diagnosis"
         st.session_state["case_management_requested"] = False
@@ -262,18 +263,29 @@ def main() -> None:
     if st.session_state.pop("case_requested_stage", None) == "Diagnosis":
         try:
             from retrieve import retrieve_category
-            diagnosis_hits = retrieve_category(patient, "Diagnosis", top_k=6,
-                                               persist_dir=INDEX_PATH, cards=cards)
-            names = []
-            for hit in diagnosis_hits:
-                card = cards.get(hit["card_id"])
-                name = card.disease_protocol if card else None
-                if name in ("Dengue", "Chikungunya", "Cholera", "Hypertension") and name not in names:
-                    names.append(name)
+            if st.session_state.get("case_mode") == "improved":
+                from patient_features import rank_diseases
+                ranking = rank_diseases(patient, cards)
+                st.session_state["diagnosis_ranking"] = ranking
+                names = [item["disease"] for item in ranking["candidates"]]
+            else:
+                diagnosis_hits = retrieve_category(patient, "Diagnosis", top_k=6,
+                                                   persist_dir=INDEX_PATH, cards=cards)
+                names = []
+                for hit in diagnosis_hits:
+                    card = cards.get(hit["card_id"])
+                    name = card.disease_protocol if card else None
+                    if name in ("Dengue", "Chikungunya", "Cholera", "Hypertension") and name not in names:
+                        names.append(name)
             with st.spinner("Reviewing diagnostic evidence..."):
-                diagnosis = recommend_section(
-                    patient, "Diagnosis", mode=st.session_state.get("case_mode", "improved"),
-                    cards=cards, persist_dir=INDEX_PATH, diseases=names[:2] or None)
+                if st.session_state.get("case_mode") == "improved" and not names:
+                    diagnosis = {"probable_diagnosis": [], "missing_info": [
+                        "Insufficient matching case-definition evidence; request more clinical findings."
+                    ], "evidence_card_ids": [], "notice": "No clinically supported disease candidate."}
+                else:
+                    diagnosis = recommend_section(
+                        patient, "Diagnosis", mode=st.session_state.get("case_mode", "improved"),
+                        cards=cards, persist_dir=INDEX_PATH, diseases=names[:2] or None)
                 st.session_state["case_results"]["Diagnosis"] = diagnosis
                 st.session_state["case_diseases"] = (
                     management_disease_choices(diagnosis, cards)
@@ -286,6 +298,10 @@ def main() -> None:
     if "Diagnosis" in st.session_state.get("case_results", {}):
         output = st.session_state["case_results"]["Diagnosis"]
         st.subheader("Probable diagnosis")
+        if st.session_state.get("case_mode") == "improved":
+            ranking = st.session_state.get("diagnosis_ranking", {})
+            st.caption("Clinical candidate status: " + ranking.get("status", "unknown") +
+                       " (heuristic ranking, not a diagnosis probability)")
         if output.get("notice"):
             st.warning(output["notice"])
         for item in output.get("probable_diagnosis", []):

@@ -535,7 +535,8 @@ def recommend(
 def _structured_patient_context(patient: dict[str, Any]) -> dict[str, Any]:
     """Promote explicit observed features into rule fields; never infer absent signs."""
     import re
-    enriched = dict(patient)
+    from patient_features import extract_patient_features
+    enriched = {**patient, **extract_patient_features(patient)}
     duration = str(patient.get("duration", ""))
     match = re.fullmatch(r"\s*(\d+)\s*(?:day|days|d)\s*", duration, re.I)
     if match:
@@ -569,13 +570,17 @@ def recommend_section(patient: dict[str, Any], stage: str, *, mode: str = "impro
     requested = 4 if stage == "Diagnosis" else (4 if stage == "Investigations" else 3)
     items = retrieve_category(patient, category, diseases=diseases,
                               top_k=requested, persist_dir=persist_dir, cards=cards)
+    if mode == "improved" and stage == "Diagnosis":
+        from card_roles import assign_role
+        items = [hit for hit in items if hit.get("card_id") in cards
+                 and assign_role(cards[hit["card_id"]]) == "case_definition"]
     # Cross-protocol safety information remains visible during each stage.
     selected = [cards[x["card_id"]] for x in items if x.get("card_id") in cards]
     # Diagnosis was already generated; management stages only need relevant
     # management evidence and a bounded safety/differential reference.
     # Safety guideline CHI-026 applies to suspected Chikungunya pending dengue exclusion.
     # Include it only where this protocol is a candidate, not for every patient.
-    if diseases and "Chikungunya" in diseases and "CHI-026" in cards:
+    if mode != "improved" and diseases and "Chikungunya" in diseases and "CHI-026" in cards:
         selected.append(cards["CHI-026"])
     selected = list({c.card_id: c for c in selected}.values())
     if not selected:
@@ -623,6 +628,17 @@ def recommend_section(patient: dict[str, Any], stage: str, *, mode: str = "impro
                 if other_key != key:
                     setattr(response, other_key, [])
             response, rejected = _validate_output(response, group_cards)
+            if mode == "improved" and stage == "Diagnosis":
+                # A diagnosis must cite a single eligible disease protocol.
+                retained = []
+                for item in response.probable_diagnosis:
+                    protocols = {group_cards[ref.card_id].disease_protocol
+                                 for ref in item.evidence if ref.card_id in group_cards}
+                    if len(protocols) == 1 and (not diseases or next(iter(protocols)) in diseases):
+                        retained.append(item)
+                    else:
+                        rejected.append("Diagnosis lacked eligible single-disease evidence")
+                response.probable_diagnosis = retained
             output = _dump(response)
             _attach_traceability(output, response, group_cards)
             responses.append(output)

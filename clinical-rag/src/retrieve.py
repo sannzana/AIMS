@@ -553,13 +553,9 @@ def _resources(persist_dir: str, model_name: str):
 
 
 def clinical_query(patient: dict[str, Any]) -> str:
-    """Clinical values without metadata labels being used as search terms."""
-    values = []
-    for key in QUERY_FIELDS:
-        value = patient.get(key)
-        if value not in (None, "", [], {}):
-            values.append(_readable(value))
-    return ". ".join(values)
+    """Preserve clinical narrative; numeric age, duration and vitals use typed fields."""
+    from patient_features import diagnostic_query
+    return diagnostic_query(patient)
 
 
 class Retriever:
