@@ -34,19 +34,19 @@ def test_model_cannot_invent_protocol():
     cards={"A":card("A","Protocol A","acute symptoms")}
     mock=lambda _:json.dumps({"candidates":[{"card_id":"unknown","decision":"supported",
         "patient_quotes":["acute symptoms"],"missing":[]}],"facts":{}})
-    assert triage({"symptoms":"acute symptoms"},cards,llm_generate=mock)["candidates"]==[]
+    assert triage({"symptoms":"acute symptoms"},cards,llm_generate=mock, candidate_search=lambda _p,c: list(c))["candidates"]==[]
 
 
 def test_model_cannot_invent_symptom_quote():
     cards={"A":card("A","Protocol A","acute symptoms")}
     mock=lambda _:json.dumps({"candidates":[{"card_id":"A","decision":"supported",
         "patient_quotes":["imaginary fever"],"missing":[]}],"facts":{}})
-    assert triage({"symptoms":"acute symptoms"},cards,llm_generate=mock)["candidates"]==[]
+    assert triage({"symptoms":"acute symptoms"},cards,llm_generate=mock, candidate_search=lambda _p,c: list(c))["candidates"]==[]
 
 
 def test_no_lexical_fallback_on_model_failure():
     cards={"A":card("A","Protocol A","fever and rash")}
-    result=triage({"symptoms":"fever and rash"},cards,llm_generate=lambda _:"bad")
+    result=triage({"symptoms":"fever and rash"},cards,llm_generate=lambda _:"bad", candidate_search=lambda _p,c: list(c))
     assert result["status"]=="unavailable"
 
 
@@ -57,7 +57,7 @@ def test_source_rules_are_sent_without_python_threshold():
     def mock(prompt):
         prompts.append(prompt)
         return json.dumps({"candidates":[],"facts":{}})
-    triage({"measurements":"BP 180/95 mmHg"},cards,llm_generate=mock)
+    triage({"measurements":"BP 180/95 mmHg"},cards,llm_generate=mock, candidate_search=lambda _p,c: list(c))
     assert '"value": 170' in prompts[0]
     assert "BP 180/95 mmHg" in prompts[0]
 
@@ -67,6 +67,6 @@ def test_multiple_supported_diseases_are_preserved():
     mock=lambda _:json.dumps({"candidates":[
         {"card_id":"A","decision":"supported","patient_quotes":["joint pain"],"missing":[]},
         {"card_id":"B","decision":"supported","patient_quotes":["rash"],"missing":[]}],"facts":{}})
-    result=triage({"symptoms":"joint pain and rash"},cards,llm_generate=mock)
+    result=triage({"symptoms":"joint pain and rash"},cards,llm_generate=mock, candidate_search=lambda _p,c: list(c))
     assert result["status"]=="ambiguous"
     assert len(result["candidates"])==2
