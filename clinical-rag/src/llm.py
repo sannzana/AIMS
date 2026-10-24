@@ -23,6 +23,10 @@ class LLMError(RuntimeError):
     """Raised when the configured provider cannot produce a response."""
 
 
+class LLMTransportError(LLMError):
+    """Retryable network or connection failure."""
+
+
 class LLMRateLimitError(LLMError):
     """Provider rate limit; optional server-requested retry interval."""
     def __init__(self, retry_after: str = ""):
@@ -60,7 +64,7 @@ def _json_request(url: str, payload: dict[str, Any], headers: dict[str, str]) ->
             raise LLMRateLimitError(delay) from exc
         raise LLMError(f"LLM provider returned HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
-        raise LLMError("LLM API transport failed or the remote connection was closed") from exc
+        raise LLMTransportError("LLM API transport failed or the remote connection was closed") from exc
     except json.JSONDecodeError as exc:
         raise LLMError("LLM provider returned invalid JSON") from exc
 
@@ -159,6 +163,12 @@ def generate(prompt: str) -> str:
                 if attempt == 2:
                     raise
                 time.sleep(exc.retry_after if exc.retry_after is not None else 2 ** attempt)
+            except LLMTransportError as exc:
+                if attempt == 2:
+                    raise LLMTransportError(
+                        "LLM connection failed after 3 attempts; check network or provider status"
+                    ) from exc
+                time.sleep(0.5 * (2 ** attempt))
         text = _api_text(data)
     else:
         raise LLMError("LLM_PROVIDER must be 'api' or 'ollama'")
