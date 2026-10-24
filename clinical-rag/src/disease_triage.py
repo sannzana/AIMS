@@ -203,10 +203,8 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
                 for conflict_quote in contradiction_quotes:
                     if not isinstance(conflict_quote, str) or len(conflict_quote.strip()) < 2:
                         continue
-                    normalized_conflict = " ".join(
-                        re.findall(r"[a-z0-9]+|[\\u0980-\\u09ff]+", conflict_quote.casefold())
-                    )
-                    if not normalized_conflict or f" {normalized_conflict} " not in f" {normalize_quote(patient_source)} ":
+                    normalized_conflict = normalize_conflict_text(conflict_quote)
+                    if not normalized_conflict or f" {normalized_conflict} " not in f" {normalize_conflict_text(patient_source)} ":
                         continue
                     # Accept an explicit denial in the quoted phrase or in its
                     # surrounding clause, e.g. quote="fever" in "no fever".
