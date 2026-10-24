@@ -1,7 +1,7 @@
 """Classify source cards for retrieval."""
 
 def assign_role(card):
-    data = card.model_dump() if hasattr(card, 'model_dump') else dict(card)
+    data = card.model_dump() if hasattr(card, 'model_dump') else (dict(card) if isinstance(card, dict) else vars(card))
     category = str(data.get('clinical_category') or '').casefold()
     if category != 'diagnosis':
         return category or 'other'
