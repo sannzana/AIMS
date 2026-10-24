@@ -59,8 +59,8 @@ def _json_request(url: str, payload: dict[str, Any], headers: dict[str, str]) ->
             delay = exc.headers.get("Retry-After", "") if exc.headers else ""
             raise LLMRateLimitError(delay) from exc
         raise LLMError(f"LLM provider returned HTTP {exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise LLMError("LLM request failed or timed out") from exc
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+        raise LLMError("LLM API transport failed or the remote connection was closed") from exc
     except json.JSONDecodeError as exc:
         raise LLMError("LLM provider returned invalid JSON") from exc
 
