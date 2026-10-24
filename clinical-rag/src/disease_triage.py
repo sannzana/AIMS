@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from card_roles import assign_role
 from llm import generate, LLMError
+from fact_verification import rule_fields, verify_facts
 
 
 def _raw(card: Any) -> dict[str, Any]:
@@ -70,7 +71,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         })
     # All source field names, including laboratory values, are discovered from
     # the selected case-definition rules; no disease-specific Python mapping.
-    fields = sorted(set().union(*(_fields(x["logic"]) for x in concise)))
+    fields = sorted(rule_fields(cards))
     prompt = (
         "You are an evidence matching component, not a treating clinician. "
         "Return ONLY JSON. Compare ALL patient observations (including negated "
@@ -90,7 +91,9 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         "\"missing\":[\"needed datum\"]}],"
         "\"facts\":{\"source_rule_field\":true|false|number|string|null}}. "
         "Select only source card IDs from the provided cards. The facts dictionary "
-        "may contain only provided field names and values explicitly stated "
+        "may contain only provided field names. Each non-null fact MUST be "
+        "an object {\"value\":scalar,\"quote\":\"exact quoted patient substring\"}. "
+        "Use null for missing facts. Values must be explicitly stated "
         "in the patient data. Missing values must be null. "
         "\nPATIENT:\n" + _patient_text(patient) +
         "\nAVAILABLE SOURCE FIELDS:\n" + json.dumps(fields) +
@@ -104,13 +107,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     except (LLMError, ValueError, TypeError, IndexError, KeyError) as exc:
         return {"status": "unavailable", "candidates": [], "features": {},
                 "notice": "Triage unavailable; no keyword fallback. " + str(exc)[:160]}
-    facts = response.get("facts", {})
-    if not isinstance(facts, dict):
-        facts = {}
-    # Keep supported source field names, do not materialize imagined inputs.
-    facts = {k: v for k, v in facts.items()
-             if k in fields and isinstance(v, (bool, int, float, str))
-             and v != ""}
+    facts, rejected_facts = verify_facts(response.get("facts", {}), patient, set(fields))
     allowed = {c.card_id: c for c in definitions}
     observed = _patient_text(patient).casefold()
     supported = []
@@ -146,4 +143,5 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     status = ("clear" if len(candidates) == 1 and supported else
               "ambiguous" if candidates else "no_match")
     return {"status": status, "candidates": candidates, "features": facts,
+            "rejected_facts": rejected_facts,
             "notice": None if supported else "Insufficient verified diagnostic evidence."}
