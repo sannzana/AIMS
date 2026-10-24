@@ -69,8 +69,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             "criteria": raw.get("relevant_symptoms_or_prerequisites") or "",
             "logic": raw.get("conditions_decision_logic") or [],
         })
-    # All source field names, including laboratory values, are discovered from
-    # the selected case-definition rules; no disease-specific Python mapping.
+    # All source field names are discovered across the entire evidence corpus.
     fields = sorted(rule_fields(cards))
     prompt = (
         "You are an evidence matching component, not a treating clinician. "
@@ -89,7 +88,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         "\"decision\":\"supported|uncertain|contradicted\","
         "\"patient_quotes\":[\"EXACT substring copied from patient input\"],"
         "\"missing\":[\"needed datum\"]}],"
-        "\"facts\":{\"source_rule_field\":true|false|number|string|null}}. "
+        "\"facts\":{\"source_rule_field\":{\"value\":number|string|boolean|null,\"quote\":\"exact patient substring\"}}}. "
         "Select only source card IDs from the provided cards. The facts dictionary "
         "may contain only provided field names. Each non-null fact MUST be "
         "an object {\"value\":scalar,\"quote\":\"exact quoted patient substring\"}. "
