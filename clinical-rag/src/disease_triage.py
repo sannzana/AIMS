@@ -49,7 +49,8 @@ def _patient_text(patient: dict[str, Any]) -> str:
 
 
 def triage(patient: dict[str, Any], cards: dict[str, Any],
-           llm_generate: Callable[[str], str] = generate) -> dict[str, Any]:
+           llm_generate: Callable[[str], str] = generate,
+           candidate_search: Callable[[dict[str, Any], dict[str, Any]], list[str]] | None = None) -> dict[str, Any]:
     """Grounded candidate selection. No heuristic fallback on LLM errors.
 
     Returns names/card IDs compatible with the existing diagnosis pipeline.
@@ -74,13 +75,16 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     # Retrieve relevant case definitions first; avoid overflowing the LLM with the entire corpus.
     # Retrieval discovers candidates; the model decides clinical fit using source evidence.
     try:
-        from retrieve import Retriever, clinical_query
-        engine = Retriever(cards=cards)
-        hits = engine.search(
-            clinical_query(patient), category="Diagnosis",
-            roles={"case_definition"}, n=20,
-        )
-        selected_ids = {hit["card_id"] for hit in hits}
+        if candidate_search is not None:
+            selected_ids = set(candidate_search(patient, cards))
+        else:
+            from retrieve import Retriever, clinical_query
+            engine = Retriever(cards=cards)
+            hits = engine.search(
+                clinical_query(patient), category="Diagnosis",
+                roles={"case_definition"}, n=20,
+            )
+            selected_ids = {hit["card_id"] for hit in hits}
         shortlist = [entry for entry in concise if entry["id"] in selected_ids]
     except (ImportError, OSError, RuntimeError, ValueError, KeyError) as exc:
         return {"status": "unavailable", "candidates": [], "features": {},
