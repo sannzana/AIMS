@@ -53,3 +53,17 @@ def test_duration_and_age_cannot_create_disease_match():
     cards={"A":card("A","Disease A","12 days fever age 38 years")}
     result=rank_diseases({"age":38,"duration":"12 hours","symptoms":"isolated toothache"},cards)
     assert result["status"] == "no_match"
+
+def test_negated_fever_and_joint_pain_do_not_support_diagnosis():
+    cards={"A":card("A","Febrile arthralgia","fever and joint pain rash"),
+           "B":card("B","Gastrointestinal illness","acute watery diarrhoea intense thirst")}
+    case={"symptoms":"Acute watery diarrhoea, intense thirst; no fever, no joint pain"}
+    result=rank_diseases(case,cards)
+    assert result["candidates"][0]["disease"]=="Gastrointestinal illness"
+    assert all(c["disease"]!="Febrile arthralgia" for c in result["candidates"])
+
+def test_temperature_37_does_not_create_fever_and_unknown_stays_unknown():
+    out=extract_patient_features({"symptoms":"Watery diarrhoea","measurements":"Temperature 37°C"})
+    assert out.get("fever_present") is None
+    out2=extract_patient_features({"symptoms":"No fever; no rash"})
+    assert out2["fever_present"] is False and out2["rash_present"] is False

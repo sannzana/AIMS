@@ -32,20 +32,31 @@ def extract_patient_features(patient: dict[str, Any]) -> dict[str, Any]:
     m = _TEMP.search(observations)
     if m:
         result['temperature_c'] = float(m.group(1))
-    # Only explicit findings are promoted. A missing phrase remains unknown.
-    text = ' '.join(str(patient.get(k, '')) for k in ('symptoms', 'clinical_findings')).lower()
+    # Normalize explicit findings with local negation; unknown never means false.
+    text = ' '.join(str(patient.get(k, '')) for k in
+                    ('symptoms', 'clinical_findings', 'history')).lower()
     patterns = {
-        'acute_watery_diarrhoea': r'\b(?:watery|rice.water)\s+diarrh(?:oe|e)a\b',
-        'sunken_eyes': r'\bsunken eyes\b',
-        'absent_or_weak_pulse': r'\b(?:weak|absent)\s+(?:rapid\s+)?pulse\b',
-        'vomiting_present': r'\b(?:vomit(?:ing)?|emesis)\b',
-        'arthralgia_present': r'\b(?:joint pain|arthralgia|polyarthralgia)\b',
-        'rash_present': r'\b(?:rash|skin eruption)\b',
+        'acute_watery_diarrhoea': r'\\b(?:watery|rice.water)\\s+diarrh(?:oe|e)a\\b',
+        'sunken_eyes': r'\\bsunken eyes\\b',
+        'absent_or_weak_pulse': r'\\b(?:weak|absent)\\s+(?:rapid\\s+)?pulse\\b',
+        'vomiting_present': r'\\b(?:vomiting|vomit|emesis)\\b',
+        'arthralgia_present': r'\\b(?:joint pain|arthralgia|polyarthralgia)\\b',
+        'rash_present': r'\\b(?:rash|skin eruption)\\b',
+        'fever_present': r'\\b(?:fever|febrile)\\b',
     }
     for key, pattern in patterns.items():
-        match = re.search(pattern, text)
-        if match and not re.search(r'\b(?:no|denies|without)\s+' + pattern, text):
-            result[key] = True
+        for match in re.finditer(pattern, text):
+            before = text[max(0, match.start()-35):match.start()]
+            # Only local negation, bounded by punctuation and conjunctions.
+            clause = re.split(r'[.,;]|\\b(?:but|however|and)\\b', before)[-1]
+            if re.search(r'\\b(?:no|denies|denied|without|negative for|absence of)\\s+(?:(?:any|signs of|history of|severe|high)\\s+)*$', clause):
+                result[key] = False
+            else:
+                result[key] = True
+    if 'fever_present' not in result and result.get('temperature_c') is not None:
+        # A point-in-time temperature does not rule out earlier fever.
+        if result['temperature_c'] >= 38.0:
+            result['fever_present'] = True
     return result
 
 
@@ -73,6 +84,37 @@ def _clinical_terms(text: str) -> set[str]:
     return {_SYNONYMS.get(w, w) for w in words if w not in _STOP}
 
 
+def _observed_terms(patient: dict[str, Any], features: dict[str, Any]) -> set[str]:
+    """Only affirmative patient findings contribute to diagnostic overlap."""
+    narrative = diagnostic_query(patient)
+    # Remove local explicitly negated findings from the word-overlap query.
+    cleaned = re.sub(
+        r'\\b(?:no|denies|denied|without|negative for|absence of)\\s+'
+        r'(?:(?:any|signs of|history of|severe|high)\\s+)*'
+        r'(?:fever|febrile|rash|joint pain|arthralgia|polyarthralgia|'
+        r'vomiting|diarrh(?:oe|e)a)',
+        ' ', narrative, flags=re.I)
+    terms = _clinical_terms(cleaned)
+    # Negative structured findings take precedence over generic lexical matches.
+    negated = {
+        'fever_present': {'fever'},
+        'rash_present': {'rash'},
+        'arthralgia_present': {'arthralgia', 'joint', 'pain'},
+        'vomiting_present': {'vomiting'},
+    }
+    for field, words in negated.items():
+        if features.get(field) is False:
+            terms.difference_update(words)
+    for field, word in (
+        ('fever_present', 'fever'),
+        ('rash_present', 'rash'),
+        ('arthralgia_present', 'arthralgia'),
+    ):
+        if features.get(field) is True:
+            terms.add(word)
+    return terms
+
+
 def rank_diseases(patient: dict[str, Any], cards: dict[str, Any]) -> dict[str, Any]:
     """Rank diseases from case-definition evidence only; no case-specific answer rules.
 
@@ -82,10 +124,8 @@ def rank_diseases(patient: dict[str, Any], cards: dict[str, Any]) -> dict[str, A
     from card_roles import assign_role
     features = extract_patient_features(patient)
     query = diagnostic_query(patient)
-    terms = _clinical_terms(query)
+    terms = _observed_terms(patient, features)
     # Numerical observations are represented by typed rule fields, never bare terms.
-    if features.get("temperature_c") is not None and features["temperature_c"] >= 38:
-        terms.add("fever")
     if features.get("sbp_mmhg") is not None:
         terms.update({"blood", "pressure"})
         if features["sbp_mmhg"] >= 140 or features.get("dbp_mmhg", 0) >= 90:
