@@ -737,14 +737,35 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
     if not selected:
         result["notice"] = "No management evidence fits the request; clinical review needed."
         return result
+    # The permitted evidence set is source-derived, not disease-name hardcoded.
+    evidence_by_section = {
+        section: [
+            {"card_id": entry["card_id"], "pdf_pages": entry.get("pdf_page_numbers", [])}
+            for entry in selected if entry.get("clinical_category") == category
+        ]
+        for section, category in (
+            ("investigations", "Investigation"),
+            ("medication", "Medication"),
+            ("advice", "Advice"),
+        )
+    }
     prompt = _prompt(patient, selected) + (
-        " This is a management plan for a PROBABLE, unconfirmed diagnosis. "
-        " If no provided card belongs to a requested category, leave that "
-        " output array empty and list the evidence gap under missing_info. "
-        "Set probable_diagnosis to []. Provide source-supported investigations "
-        "with purpose/timing, medication options with restrictions, and advice "
-        "in ONE JSON response. Keep all necessary safety conditions, never "
-        "invent doses, and do not prescribe when prerequisites are unknown."
+        " This is management for a PROBABLE, unconfirmed diagnosis. "
+        " Only output investigations citing Investigation cards, medication citing "
+        "Medication cards, and advice citing Advice cards. EACH citation must "
+        "belong to the EXACT corresponding section's permitted card IDs AND its "
+        "provided PDF page. Never use Advice or Diagnosis cards as investigation "
+        "evidence, even when their passages mention tests. If no eligible card "
+        "exists, use an empty array and note the evidence gap in missing_info. "
+        " Every medication item MUST contain text, reason and evidence, just "
+        "like investigations and advice. Optional name, dose, route, frequency, "
+        "duration or instructions can only be specified when directly supported. "
+        " Never prescribe when prerequisites are unknown. "
+        " Do not assume a particular rehydration plan or severity classification "
+        "without verifying its own source rules and patient evidence. "
+        " Set probable_diagnosis to []. "
+        " PERMITTED SECTION-SPECIFIC REFERENCES: "
+        + json.dumps(evidence_by_section, ensure_ascii=False)
     )
     allowed = {x["card_id"]: cards[x["card_id"]] for x in selected}
     try:
