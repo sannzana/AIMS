@@ -669,6 +669,41 @@ def recommend_section(patient: dict[str, Any], stage: str, *, mode: str = "impro
     return result
 
 
+def _enforce_management_evidence_boundary(
+    response: RecommendationResponse,
+    allowed_cards: dict[str, Card],
+    disease: str,
+) -> tuple[RecommendationResponse, list[str]]:
+    """Validate each item against its own clinical category and chosen protocol.
+
+    Generic safety invariant; never compares disease names or clinical thresholds
+    against a fixed list. No LLM-generated item survives without eligible evidence.
+    """
+    expected = {
+        "investigations": "Investigation",
+        "medication": "Medication",
+        "advice": "Advice",
+    }
+    rejected: list[str] = []
+    for section, category in expected.items():
+        accepted = []
+        for index, item in enumerate(getattr(response, section)):
+            citations = [allowed_cards.get(ref.card_id) for ref in item.evidence]
+            if not citations or any(
+                card is None or card.disease_protocol != disease
+                or card.clinical_category != category
+                for card in citations
+            ):
+                rejected.append(
+                    f"{section}.{index}: cited evidence does not match "
+                    f"selected protocol and {category} category"
+                )
+            else:
+                accepted.append(item)
+        setattr(response, section, accepted)
+    return response, rejected
+
+
 def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
                          cards: dict[str, Card], persist_dir: Path = Path("data/index"),
                          diseases: list[str] | None = None,
@@ -722,6 +757,8 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         return result
     prompt = _prompt(patient, selected) + (
         " This is a management plan for a PROBABLE, unconfirmed diagnosis. "
+        " If no provided card belongs to a requested category, leave that "
+        " output array empty and list the evidence gap under missing_info. "
         "Set probable_diagnosis to []. Provide source-supported investigations "
         "with purpose/timing, medication options with restrictions, and advice "
         "in ONE JSON response. Keep all necessary safety conditions, never "
@@ -732,6 +769,11 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         response, errors = _parse_response_partial(llm_generate(prompt))
         response.probable_diagnosis = []
         validated, rejected = _validate_output(response, allowed)
+        if mode == "improved":
+            validated, boundary_rejections = _enforce_management_evidence_boundary(
+                validated, allowed, diseases[0]
+            )
+            rejected.extend(boundary_rejections)
         output = _dump(validated)
         _attach_traceability(output, validated, allowed)
         result.update(output)
