@@ -17,7 +17,7 @@ from telemetry import record_llm_request
 MODEL = "clinical-rag-model"
 TEMPERATURE = 0.0
 MAX_TOKENS = 1200
-TIMEOUT_SECONDS = 30
+TIMEOUT_SECONDS = 30  # Default; override with AIMS_LLM_TIMEOUT_SECONDS (30-90)
 GROQ_MAX_COMPLETION_TOKENS = 3000
 
 
@@ -62,7 +62,11 @@ def _json_request(url: str, payload: dict[str, Any], headers: dict[str, str]) ->
     http_status = None
     token_usage = {}
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+        try:
+            timeout = min(90.0, max(5.0, float(os.getenv('AIMS_LLM_TIMEOUT_SECONDS', str(TIMEOUT_SECONDS)))))
+        except ValueError:
+            timeout = float(TIMEOUT_SECONDS)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             http_status = response.status
             result = json.loads(response.read().decode("utf-8"))
             if isinstance(result, dict):
@@ -81,7 +85,16 @@ def _json_request(url: str, payload: dict[str, Any], headers: dict[str, str]) ->
             raise LLMRateLimitError(delay) from exc
         raise LLMError(f"LLM provider returned HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
-        status = "transport_error"
+        import socket
+        underlying = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+        if isinstance(underlying, (TimeoutError, socket.timeout)):
+            status = "timeout"
+        elif isinstance(underlying, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
+            status = "connection_reset"
+        elif isinstance(underlying, socket.gaierror):
+            status = "dns_error"
+        else:
+            status = "transport_error"
         raise LLMTransportError("LLM API transport failed or the remote connection was closed") from exc
     except json.JSONDecodeError as exc:
         status = "invalid_json"
