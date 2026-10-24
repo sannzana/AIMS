@@ -71,53 +71,56 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         })
     # All source field names are discovered across the entire evidence corpus.
     fields = sorted(rule_fields(cards))
+    # Retrieve relevant case definitions first; avoid overflowing the LLM with the entire corpus.
+    # Retrieval discovers candidates; the model decides clinical fit using source evidence.
+    try:
+        from retrieve import Retriever, clinical_query
+        engine = Retriever(cards=cards)
+        hits = engine.search(
+            clinical_query(patient), category="Diagnosis",
+            roles={"case_definition"}, n=20,
+        )
+        selected_ids = {hit["card_id"] for hit in hits}
+        shortlist = [entry for entry in concise if entry["id"] in selected_ids]
+    except (ImportError, OSError, RuntimeError, ValueError, KeyError) as exc:
+        return {"status": "unavailable", "candidates": [], "features": {},
+                "notice": "Evidence retrieval unavailable: " + str(exc)[:180]}
+    if not shortlist:
+        return {"status": "no_match", "candidates": [], "features": {},
+                "notice": "No case-definition evidence retrieved."}
+
     def build_prompt(batch):
-        prompt = (
-            "You are an evidence matching component, not a treating clinician. "
-            "Return ONLY JSON. Compare ALL patient observations (including negated "
-            "findings, counts, lab units, duration, blood pressure) against the "
-            "source case definitions. 'No', 'none', 'denies', 'absent', and 'without' "
-            "indicate NEGATION, not a positive match. Do not treat missing as false. "
-            "A numeric condition must use the patient's measured value and the "
-            "operator/threshold in that specific source criterion. Do not invent "
-            "thresholds, diagnoses, clinical measurements or patient quotes. "
-            "Do not exclude an unrelated diagnosis just because another condition "
-            "is present; comorbid diseases can coexist. Do not use severity or "
-            "differential cards to introduce new diagnoses. If necessary evidence "
-            "is missing, mark uncertain and request information. "
-            "Return {\"candidates\":[{\"card_id\":\"id\","
-            "\"decision\":\"supported|uncertain|contradicted\","
-            "\"patient_quotes\":[\"EXACT substring copied from patient input\"],"
-            "\"missing\":[\"needed datum\"]}],"
-            "\"facts\":{\"source_rule_field\":{\"value\":number|string|boolean|null,\"quote\":\"exact patient substring\"}}}. "
-            "Select only source card IDs from the provided cards. The facts dictionary "
-            "may contain only provided field names. Each non-null fact MUST be "
-            "an object {\"value\":scalar,\"quote\":\"exact quoted patient substring\"}. "
-            "Use null for missing facts. Values must be explicitly stated "
-            "in the patient data. Missing values must be null. "
-            "\nPATIENT:\n" + _patient_text(patient) +
-            "\nAVAILABLE SOURCE FIELDS:\n" + json.dumps(fields) +
-            "\nCASE-DEFINITION CARDS:\n" + json.dumps(batch, ensure_ascii=False)
-    )
-        return prompt
-    # A single unbounded clinical corpus can exceed the model request budget.
-    # Split case-definition cards by serialized prompt size, never by disease.
+        return (
+            "Match the patient's described clinical meaning to the provided case "
+            "definitions. Return JSON only. Negated observations are NOT positives; "
+            "missing findings are unknown, never false. Avoid unsupported diagnosis. "
+            "Respect source criteria and preserve possible comorbidities. "
+            'JSON format: {"candidates":[{"card_id":"ID",'
+            '"decision":"supported|uncertain|contradicted",'
+            '"patient_quotes":["exact source quote"],"missing":[]}],'
+            '"facts":{"field":{"value":null,"quote":"exact patient quote"}}}. '
+            "Facts must come from source field names; for a real observation "
+            "replace null with its explicit scalar value. Do not invent data. "
+            "\\nPATIENT:\\n" + _patient_text(patient)
+            + "\\nSOURCE FIELDS:\\n" + json.dumps(fields)
+            + "\\nCASE CARDS:\\n" + json.dumps(batch, ensure_ascii=False)
+        )
+
     batches = []
-    batch = []
-    for card in concise:
-        trial = batch + [card]
-        if batch and len(build_prompt(trial).encode("utf-8")) > 23000:
-            batches.append(batch)
-            batch = [card]
+    current = []
+    for card in shortlist:
+        trial = current + [card]
+        if current and len(build_prompt(trial).encode("utf-8")) > 20000:
+            batches.append(current)
+            current = [card]
         else:
-            batch = trial
-        if len(build_prompt(batch).encode("utf-8")) > 28000:
+            current = trial
+        if len(build_prompt(current).encode("utf-8")) > 27000:
             return {"status": "unavailable", "candidates": [], "features": {},
-                    "notice": "A source case-definition card exceeds the model request budget."}
-    if batch:
-        batches.append(batch)
-    responses = []
-    failures = []
+                    "notice": "Single source card exceeds model context budget."}
+    if current:
+        batches.append(current)
+    responses, failures = [], []
     for batch in batches:
         try:
             responses.append(_json_object(llm_generate(build_prompt(batch))))
@@ -125,15 +128,13 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             failures.append(type(exc).__name__ + ": " + str(exc)[:160])
     if not responses:
         return {"status": "unavailable", "candidates": [], "features": {},
-                "notice": "Diagnostic model calls failed: " + "; ".join(failures[:2])}
+                "notice": "Diagnostic model unavailable: " + "; ".join(failures[:2])}
     response = {"candidates": [], "facts": {}}
     for result in responses:
-        entries = result.get("candidates", [])
-        if isinstance(entries, list):
-            response["candidates"].extend(entries)
-        values = result.get("facts", {})
-        if isinstance(values, dict):
-            response["facts"].update(values)
+        if isinstance(result.get("candidates"), list):
+            response["candidates"].extend(result["candidates"])
+        if isinstance(result.get("facts"), dict):
+            response["facts"].update(result["facts"])
     proposals = response.get("facts", {})
     facts, rejected_facts = verify_facts(proposals, patient, set(fields))
     boolean_facts, boolean_rejected = verify_boolean_facts(
@@ -150,7 +151,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             facts.pop(field, None)
     facts.update(measurement_facts)
     rejected_facts.update(measurement_rejected)
-    allowed = {c.card_id: c for c in definitions}
+    allowed = {c.card_id: c for c in definitions if c.card_id in selected_ids}
     observed = _patient_text(patient).casefold()
     supported = []
     uncertain = []
