@@ -608,3 +608,41 @@ def test_empty_retrieval_returns_safe_result_without_llm_call():
     )
     assert result["missing_info"]
     assert called is False
+
+
+def test_api_retries_transient_transport_error_then_succeeds(monkeypatch):
+    monkeypatch.setenv("LLM_CACHE", "0")
+    monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
+    monkeypatch.setenv("LLM_PROVIDER", "api")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
+    monkeypatch.setattr(llm.time, "sleep", lambda duration: None)
+    calls = []
+
+    def flaky_request(url, payload, headers):
+        calls.append(url)
+        if len(calls) < 3:
+            raise llm.LLMTransportError("connection reset")
+        return {"choices": [{"finish_reason": "stop",
+                 "message": {"content": '{"ok": true}'}}]}
+
+    monkeypatch.setattr(llm, "_json_request", flaky_request)
+    assert generate("retry prompt") == '{"ok": true}'
+    assert len(calls) == 3
+
+
+def test_api_transport_failure_stops_after_three_attempts(monkeypatch):
+    monkeypatch.setenv("LLM_CACHE", "0")
+    monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
+    monkeypatch.setenv("LLM_PROVIDER", "api")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
+    monkeypatch.setattr(llm.time, "sleep", lambda duration: None)
+    attempts = []
+
+    def disconnected(url, payload, headers):
+        attempts.append(1)
+        raise llm.LLMTransportError("connection reset")
+
+    monkeypatch.setattr(llm, "_json_request", disconnected)
+    with pytest.raises(llm.LLMTransportError, match="after 3 attempts"):
+        generate("unavailable prompt")
+    assert len(attempts) == 3
