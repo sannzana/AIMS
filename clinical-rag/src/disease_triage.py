@@ -159,16 +159,20 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     observed = _patient_text(patient).casefold()
     supported = []
     uncertain = []
+    diagnostic_rejections = {"unknown_card": 0, "invalid_quotes": 0, "unusable_decision": 0}
     for entry in response.get("candidates", []):
         if not isinstance(entry, dict) or entry.get("card_id") not in allowed:
+            diagnostic_rejections["unknown_card"] += 1
             continue
         raw_quotes = entry.get("patient_quotes", [])
         if not isinstance(raw_quotes, list):
+            diagnostic_rejections["invalid_quotes"] += 1
             continue
         quotes = [q.strip() for q in raw_quotes
                   if isinstance(q, str) and len(q.strip()) >= 3
                   and q.strip().casefold() in observed]
         if len(quotes) != len(raw_quotes):
+            diagnostic_rejections["invalid_quotes"] += 1
             continue
         decision = entry.get("decision")
         card = allowed[entry["card_id"]]
@@ -178,6 +182,8 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             supported.append(item)
         elif decision == "uncertain":
             uncertain.append(item)
+        else:
+            diagnostic_rejections["unusable_decision"] += 1
     # Preserve disease diversity, not multiple cards of the same protocol.
     def unique(values):
         found = {}
@@ -189,6 +195,15 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         candidates = unique(uncertain)
     status = ("clear" if len(candidates) == 1 and supported else
               "ambiguous" if candidates else "no_match")
+    diagnostics = {"retrieved_card_ids": sorted(selected_ids),
+                   "case_definition_count": len(definitions),
+                   "shortlist_count": len(shortlist),
+                   "llm_batches": len(batches), "successful_llm_batches": len(responses),
+                   "failed_llm_batches": len(failures),
+                   "model_candidate_count": len(response.get("candidates", [])),
+                   "rejections": diagnostic_rejections,
+                   "verified_fact_count": len(facts),
+                   "rejected_fact_count": len(rejected_facts)}
     return {"status": status, "candidates": candidates, "features": facts,
-            "rejected_facts": rejected_facts,
+            "diagnostics": diagnostics, "rejected_facts": rejected_facts,
             "notice": None if supported else "Insufficient verified diagnostic evidence."}
