@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from card_roles import assign_role
 from llm import generate, LLMError
-from fact_verification import rule_fields, verify_facts, verify_boolean_facts
+from fact_verification import rule_fields, verify_facts, verify_boolean_facts, verify_measurement_facts
 
 
 def _raw(card: Any) -> dict[str, Any]:
@@ -113,6 +113,15 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     )
     facts.update(boolean_facts)
     rejected_facts.update(boolean_rejected)
+    measurement_facts, measurement_rejected = verify_measurement_facts(
+        proposals, patient, set(fields), llm_generate
+    )
+    # Replace unverified numeric values with separately checked measurements.
+    for field, entry in (proposals.items() if isinstance(proposals, dict) else []):
+        if isinstance(entry, dict) and isinstance(entry.get("value"), (int, float)) and not isinstance(entry.get("value"), bool):
+            facts.pop(field, None)
+    facts.update(measurement_facts)
+    rejected_facts.update(measurement_rejected)
     allowed = {c.card_id: c for c in definitions}
     observed = _patient_text(patient).casefold()
     supported = []
