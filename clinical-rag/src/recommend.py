@@ -103,6 +103,13 @@ def _parse_response_partial(
     raw: str,
 ) -> tuple[RecommendationResponse, list[str]]:
     """Parse valid items independently so one unsafe item cannot hide others."""
+    # Accept harmless Markdown fences while keeping JSON schema strict.
+    # Never guess missing clinical fields or silently repair a malformed response.
+    raw = raw.strip()
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        if len(lines) >= 3 and lines[-1].strip() == "```":
+            raw = "\n".join(lines[1:-1]).strip()
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
