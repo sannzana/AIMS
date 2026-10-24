@@ -6,6 +6,7 @@ import json
 import os
 import hashlib
 import time
+import random
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -204,7 +205,10 @@ def generate(prompt: str) -> str:
                     raise LLMTransportError(
                         "LLM connection failed after 3 attempts; check network or provider status"
                     ) from exc
-                time.sleep(0.5 * (2 ** attempt))
+                # Short repeated resets are not timeouts. Give a transient
+                # network or TLS interruption room to recover, without retry storms.
+                delay = (2.0, 5.0)[attempt] + random.uniform(0.0, 0.5)
+                time.sleep(delay)
         text = _api_text(data)
     else:
         raise LLMError("LLM_PROVIDER must be 'api' or 'ollama'")
