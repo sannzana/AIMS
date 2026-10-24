@@ -276,7 +276,7 @@ def main() -> None:
                 for hit in diagnosis_hits:
                     card = cards.get(hit["card_id"])
                     name = card.disease_protocol if card else None
-                    if name in ("Dengue", "Chikungunya", "Cholera", "Hypertension") and name not in names:
+                    if name and name not in names:
                         names.append(name)
             with st.spinner("Reviewing diagnostic evidence..."):
                 if st.session_state.get("case_mode") == "improved" and not names:
