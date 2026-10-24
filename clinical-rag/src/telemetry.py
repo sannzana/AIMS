@@ -23,7 +23,8 @@ def record_llm_request(url, latency_ms, status, http_status=None, token_usage=No
             "provider": provider,
             "duration_ms": float(latency_ms),
             "outcome": str(status) if status in {
-                "ok", "http_error", "transport_error", "invalid_json"
+                "ok", "http_error", "transport_error", "invalid_json",
+                "timeout", "connection_reset", "dns_error"
             } else "other_error",
             "http_status": int(http_status) if type(http_status) is int else None,
         }
