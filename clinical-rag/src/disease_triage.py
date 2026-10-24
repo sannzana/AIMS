@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from card_roles import assign_role
 from llm import generate, LLMError
-from fact_verification import rule_fields, verify_facts
+from fact_verification import rule_fields, verify_facts, verify_boolean_facts
 
 
 def _raw(card: Any) -> dict[str, Any]:
@@ -106,7 +106,13 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
     except (LLMError, ValueError, TypeError, IndexError, KeyError) as exc:
         return {"status": "unavailable", "candidates": [], "features": {},
                 "notice": "Triage unavailable; no keyword fallback. " + str(exc)[:160]}
-    facts, rejected_facts = verify_facts(response.get("facts", {}), patient, set(fields))
+    proposals = response.get("facts", {})
+    facts, rejected_facts = verify_facts(proposals, patient, set(fields))
+    boolean_facts, boolean_rejected = verify_boolean_facts(
+        proposals, patient, set(fields), llm_generate
+    )
+    facts.update(boolean_facts)
+    rejected_facts.update(boolean_rejected)
     allowed = {c.card_id: c for c in definitions}
     observed = _patient_text(patient).casefold()
     supported = []
