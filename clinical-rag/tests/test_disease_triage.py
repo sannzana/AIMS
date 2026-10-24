@@ -19,7 +19,7 @@ def test_grounded_source_protocol_not_model_disease():
     mock=lambda prompt:json.dumps({"candidates":[{"card_id":"a",
         "decision":"supported","patient_quotes":["a symptom"],"missing":[]}],
         "facts":{}})
-    got=triage({"symptoms":"a symptom"},cards,llm_generate=mock)
+    got=triage({"symptoms":"a symptom"},cards,llm_generate=mock, candidate_search=lambda _p,c: list(c))
     assert got["candidates"][0]["disease"]=="Protocol Alpha"
     assert got["status"]=="clear"
 
@@ -28,11 +28,11 @@ def test_rejects_hallucinated_patient_quote():
     mock=lambda prompt:json.dumps({"candidates":[{"card_id":"a",
         "decision":"supported","patient_quotes":["invented finding"],"missing":[]}],
         "facts":{}})
-    assert triage({"symptoms":"a symptom"},cards,llm_generate=mock)["status"]=="no_match"
+    assert triage({"symptoms":"a symptom"},cards,llm_generate=mock, candidate_search=lambda _p,c: list(c))["status"]=="no_match"
 
 def test_provider_failure_has_no_keyword_fallback():
     cards={"a":card("a","Protocol Alpha","a symptom")}
-    result=triage({"symptoms":"a symptom"},cards,llm_generate=lambda _: "{}" if False else "not json")
+    result=triage({"symptoms":"a symptom"},cards,llm_generate=lambda _: "{}" if False else "not json", candidate_search=lambda _p,c: list(c))
     assert result["status"]=="unavailable"
     assert result["candidates"]==[]
 
@@ -42,5 +42,5 @@ def test_negation_is_in_prompt_and_no_numeric_cutoffs_in_module():
     def mock(prompt):
         seen.append(prompt)
         return '{"candidates":[],"facts":{}}'
-    triage({"symptoms":"no a symptom", "measurements":"test 17 units"}, cards, llm_generate=mock)
+    triage({"symptoms":"no a symptom", "measurements":"test 17 units"}, cards, llm_generate=mock, candidate_search=lambda _p,c: list(c))
     assert "NEGATION" in seen[0] and "test 17 units" in seen[0]
