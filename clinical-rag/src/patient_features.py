@@ -36,20 +36,20 @@ def extract_patient_features(patient: dict[str, Any]) -> dict[str, Any]:
     text = ' '.join(str(patient.get(k, '')) for k in
                     ('symptoms', 'clinical_findings', 'history')).lower()
     patterns = {
-        'acute_watery_diarrhoea': r'\\b(?:watery|rice.water)\\s+diarrh(?:oe|e)a\\b',
-        'sunken_eyes': r'\\bsunken eyes\\b',
-        'absent_or_weak_pulse': r'\\b(?:weak|absent)\\s+(?:rapid\\s+)?pulse\\b',
-        'vomiting_present': r'\\b(?:vomiting|vomit|emesis)\\b',
-        'arthralgia_present': r'\\b(?:joint pain|arthralgia|polyarthralgia)\\b',
-        'rash_present': r'\\b(?:rash|skin eruption)\\b',
-        'fever_present': r'\\b(?:fever|febrile)\\b',
+        'acute_watery_diarrhoea': r'\b(?:watery|rice.water)\s+diarrh(?:oe|e)a\b',
+        'sunken_eyes': r'\bsunken eyes\b',
+        'absent_or_weak_pulse': r'\b(?:weak|absent)\s+(?:rapid\s+)?pulse\b',
+        'vomiting_present': r'\b(?:vomiting|vomit|emesis)\b',
+        'arthralgia_present': r'\b(?:joint pain|arthralgia|polyarthralgia)\b',
+        'rash_present': r'\b(?:rash|skin eruption)\b',
+        'fever_present': r'\b(?:fever|febrile)\b',
     }
     for key, pattern in patterns.items():
         for match in re.finditer(pattern, text):
             before = text[max(0, match.start()-35):match.start()]
             # Only local negation, bounded by punctuation and conjunctions.
-            clause = re.split(r'[.,;]|\\b(?:but|however|and)\\b', before)[-1]
-            if re.search(r'\\b(?:no|denies|denied|without|negative for|absence of)\\s+(?:(?:any|signs of|history of|severe|high)\\s+)*$', clause):
+            clause = re.split(r'[.,;]|\b(?:but|however|and)\b', before)[-1]
+            if re.search(r'\b(?:no|denies|denied|without|negative for|absence of)\s+(?:(?:any|signs of|history of|severe|high)\s+)*$', clause):
                 result[key] = False
             else:
                 result[key] = True
@@ -89,8 +89,8 @@ def _observed_terms(patient: dict[str, Any], features: dict[str, Any]) -> set[st
     narrative = diagnostic_query(patient)
     # Remove local explicitly negated findings from the word-overlap query.
     cleaned = re.sub(
-        r'\\b(?:no|denies|denied|without|negative for|absence of)\\s+'
-        r'(?:(?:any|signs of|history of|severe|high)\\s+)*'
+        r'\b(?:no|denies|denied|without|negative for|absence of)\s+'
+        r'(?:(?:any|signs of|history of|severe|high)\s+)*'
         r'(?:fever|febrile|rash|joint pain|arthralgia|polyarthralgia|'
         r'vomiting|diarrh(?:oe|e)a)',
         ' ', narrative, flags=re.I)
