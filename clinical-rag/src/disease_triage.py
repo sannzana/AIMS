@@ -7,6 +7,7 @@ catalogue lives in Python. Invalid/uncertain output fails closed, not to keyword
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable
 
 from card_roles import assign_role
@@ -184,12 +185,14 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             diagnostic_rejections["invalid_quotes"] += 1
             decision_trace["rejected_candidates"].append({"card_id": entry["card_id"], "reason": "invalid_quote_type"})
             continue
-        # Validate each quote independently: a single paraphrased/invalid quote
-        # must not erase other literal, valid patient evidence.
+        # Validate quotes independently. Normalize case and punctuation, but
+        # preserve token boundaries so "rash" cannot match inside "crash".
         patient_source = _patient_text(patient)
+
         def normalize_quote(value: str) -> str:
-            return " ".join(__import__("re").findall(r"[a-z0-9]+|[\\u0980-\\u09ff]+", value.casefold()))
-        normalized_patient = normalize_quote(patient_source)
+            return " ".join(re.findall(r"[a-z0-9]+|[\u0980-\u09ff]+", value.casefold()))
+
+        normalized_patient = f" {normalize_quote(patient_source)} "
         quotes = []
         invalid_quote_count = 0
         negated_quote_count = 0
@@ -199,19 +202,35 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
                 continue
             quote = raw_quote.strip()
             normalized_quote = normalize_quote(quote)
-            if not normalized_quote or normalized_quote not in normalized_patient:
+            if not normalized_quote or f" {normalized_quote} " not in normalized_patient:
                 invalid_quote_count += 1
                 continue
-            # Conservative local negation guard: don't count a positive-only
-            # quote as support when its nearby source clause explicitly negates it.
-            import re
-            escaped = re.escape(quote)
-            match = re.search(r"[^.!?;\\n]{0,70}\\b(?:no|not|without|denies|denied|negative for|absent|never)\\b[^.!?;\\n]{0,70}" + escaped, patient_source, re.I)
-            bangla_match = re.search(r"[^।;\\n]{0,50}" + escaped + r"[^।;\\n]{0,30}\\b(?:nei|nai|na)\\b", patient_source, re.I)
-            if match or bangla_match:
+
+            # Check the local source clause before the quoted occurrence. This
+            # is intentionally conservative; it is not a general clinical NLP
+            # negation parser.
+            negated = False
+            for occurrence in re.finditer(re.escape(quote), patient_source, re.I):
+                prefix = re.split(r"[.!?;\n]", patient_source[:occurrence.start()])[-1].casefold()
+                cue = re.search(
+                    r"\b(?:no|not|without|denies|denied|negative for|absent|never)\b",
+                    prefix,
+                )
+                if cue:
+                    after_cue = prefix[cue.end():]
+                    if not re.search(r"\b(?:but|however|except|although|yet)\b", after_cue):
+                        negated = True
+                suffix = re.split(
+                    r"[.!?;\n]", patient_source[occurrence.end():], maxsplit=1
+                )[0].casefold()
+                if re.search(r"\b(?:absent|negative)\b|(?:নেই|নাই|না)", suffix):
+                    negated = True
+                break
+            if negated:
                 negated_quote_count += 1
                 continue
             quotes.append(quote)
+
         if invalid_quote_count:
             diagnostic_rejections["invalid_quotes"] += invalid_quote_count
         if invalid_quote_count or negated_quote_count:
@@ -232,7 +251,13 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             decision_trace["accepted_uncertain_card_ids"].append(card.card_id)
         else:
             diagnostic_rejections["unusable_decision"] += 1
-            decision_trace["rejected_candidates"].append({"card_id": card.card_id, "reason": "unsupported_decision_or_no_quotes"})
+            # If quote validation already explains why there is no support,
+            # avoid a duplicate rejection entry for the same candidate.
+            if not invalid_quote_count and not negated_quote_count:
+                decision_trace["rejected_candidates"].append({
+                    "card_id": card.card_id,
+                    "reason": "unsupported_decision_or_no_quotes"
+                })
     # Preserve disease diversity, not multiple cards of the same protocol.
     def unique(values):
         found = {}
