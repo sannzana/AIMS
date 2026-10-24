@@ -105,6 +105,43 @@ def management_disease_choices(diagnosis: dict[str, Any], cards: dict[str, Card]
     return choices
 
 
+
+def diagnosis_from_triage(ranking: dict[str, Any], cards: dict[str, Card]) -> dict[str, Any]:
+    """Render source-backed candidate hypotheses without another LLM request.
+
+    A triage candidate is NOT a confirmed diagnosis. Only a supported candidate
+    with an existing case-definition card and literal patient quotes qualifies.
+    """
+    from card_roles import assign_role
+    items = []
+    for candidate in ranking.get("candidates", []):
+        if not isinstance(candidate, dict):
+            continue
+        card = cards.get(candidate.get("card_id"))
+        quotes = candidate.get("matched_features")
+        if (card is None or card.clinical_category != "Diagnosis"
+                or assign_role(card) != "case_definition"
+                or card.disease_protocol != candidate.get("disease")
+                or not isinstance(quotes, list) or not quotes):
+            continue
+        pages = card.pdf_page_numbers or []
+        if not pages:
+            continue
+        items.append({
+            "text": "Suspected " + card.disease_protocol + " (source-backed clinical candidate; not confirmed)",
+            "reason": "Patient-reported evidence: " + "; ".join(str(x) for x in quotes[:4]),
+            "evidence": [{"card_id": card.card_id, "pdf_page": pages[0]}],
+        })
+    return {
+        "probable_diagnosis": items, "investigations": [], "medication": [], "advice": [],
+        "missing_info": [str(x) for c in ranking.get("candidates", [])
+                         for x in (c.get("missing") or []) if isinstance(x, str)][:8],
+        "evidence_card_ids": [x["evidence"][0]["card_id"] for x in items],
+        "stage": "Diagnosis",
+        "notice": None if items else ranking.get("notice", "No verified source-backed candidate."),
+    }
+
+
 def _render_recommendation_item(st: Any, item: dict[str, Any]) -> None:
     st.markdown(f"**{item.get('text', 'Unspecified recommendation')}**")
     if item.get("reason"):
@@ -283,15 +320,12 @@ def main() -> None:
                     diagnosis = {"probable_diagnosis": [], "missing_info": [
                         "Diagnostic selection did not complete; check candidate status and retrieval/model diagnostics."
                     ], "evidence_card_ids": [], "notice": ranking.get("notice") or "No supported candidate after source review."}
+                elif st.session_state.get("case_mode") == "improved":
+                    diagnosis = diagnosis_from_triage(ranking, cards)
                 else:
                     diagnosis = recommend_section(
-                        {**patient, "_structured_facts": ranking.get("features", {})}
-                        if st.session_state.get("case_mode") == "improved" else patient,
-                        "Diagnosis", mode=st.session_state.get("case_mode", "improved"),
-                        cards=cards, persist_dir=INDEX_PATH, diseases=names[:2] or None,
-                        diagnosis_card_ids=([item["card_id"] for item in ranking["candidates"]]
-                                            if st.session_state.get("case_mode") == "improved"
-                                            else None))
+                        patient, "Diagnosis", mode="baseline",
+                        cards=cards, persist_dir=INDEX_PATH, diseases=names[:2] or None)
                 st.session_state["case_results"]["Diagnosis"] = diagnosis
                 st.session_state["case_diseases"] = (
                     management_disease_choices(diagnosis, cards)
