@@ -57,3 +57,43 @@ def test_429_fails_explicitly_after_bounded_retries(tmp_path, monkeypatch):
     with pytest.raises(llm.LLMRateLimitError):
         llm.generate("fictional")
     assert len(calls) == 3
+
+
+def test_transport_backoff_recovers_after_short_resets(monkeypatch):
+    monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
+    monkeypatch.setenv("LLM_PROVIDER", "api")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
+    monkeypatch.setenv("LLM_CACHE", "0")
+    monkeypatch.setattr(llm.random, "uniform", lambda a, b: 0.25)
+    sleeps = []
+    monkeypatch.setattr(llm.time, "sleep", sleeps.append)
+    calls = []
+    def request(*args):
+        calls.append(1)
+        if len(calls) < 3:
+            raise llm.LLMTransportError("simulated reset")
+        return {"choices": [{"finish_reason": "stop",
+                             "message": {"content": '{"status":"ok"}'}}]}
+    monkeypatch.setattr(llm, "_json_request", request)
+    assert llm.generate("fictional") == '{"status":"ok"}'
+    assert len(calls) == 3
+    assert sleeps == [2.25, 5.25]
+
+
+def test_transport_failure_bounded_to_three_attempts(monkeypatch):
+    monkeypatch.setattr(llm, "_load_dotenv", lambda: None)
+    monkeypatch.setenv("LLM_PROVIDER", "api")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
+    monkeypatch.setenv("LLM_CACHE", "0")
+    monkeypatch.setattr(llm.random, "uniform", lambda a, b: 0.0)
+    sleeps = []
+    monkeypatch.setattr(llm.time, "sleep", sleeps.append)
+    calls = []
+    def request(*args):
+        calls.append(1)
+        raise llm.LLMTransportError("simulated reset")
+    monkeypatch.setattr(llm, "_json_request", request)
+    with pytest.raises(llm.LLMTransportError, match="after 3 attempts"):
+        llm.generate("fictional")
+    assert len(calls) == 3
+    assert sleeps == [2.0, 5.0]
