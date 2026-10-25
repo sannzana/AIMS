@@ -793,6 +793,7 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         new_facts, fact_info = extract_management_facts(
             patient, cards.values(), diseases[0], ctx, llm_generate)
         ctx = {**ctx, **new_facts}
+        clarification_facts = dict(ctx)
         derived, derived_trace = derive_classifications(cards.values(), diseases[0], ctx)
         ctx = {**ctx, **derived}
         ctx, source_values, resolved = source_context(cards.values(), diseases[0], ctx, derived_trace)
@@ -893,6 +894,8 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         result["management_diagnostics"]["management_fact_extraction"] = fact_info
         result["management_diagnostics"]["resolved_source_context"] = resolved
         result["working_diagnosis"] = diseases[0]
+        # Private management-only snapshot; never sent to diagnosis or diagnostics.
+        result["_clarification_context"] = clarification_facts
     for field_name, entry in derived_trace.get("fields", {}).items():
         if entry.get("status") == "undecided":
             cards_txt = ", ".join(

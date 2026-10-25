@@ -411,6 +411,10 @@ def main() -> None:
                     mode=st.session_state.get("case_mode", "improved"),
                     cards=cards, persist_dir=INDEX_PATH, diseases=diseases)
         output = st.session_state["case_results"]["Management"]
+        original_management = output
+        if st.session_state.get("case_mode") == "improved":
+            from management_clarification_ui import current_view
+            output = current_view(original_management)
         st.subheader("Treatment & Management Plan")
         if output.get("notice"):
             st.warning(output["notice"])
@@ -554,6 +558,9 @@ def main() -> None:
                 card = cards.get(cid)
                 if card:
                     st.write(f"{cid} — {getattr(card, 'card_title', '')} ({card.disease_protocol}), pages {card.pdf_page_numbers}")
+        if st.session_state.get("case_mode") == "improved":
+            from management_clarification_ui import render_questions
+            render_questions(original_management, cards)
     st.caption("Educational prototype only; all recommendations need qualified clinical review.")
 
 
