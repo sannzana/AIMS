@@ -789,8 +789,6 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         from derived_fields import blocked_cards, derive_classifications
         from management_facts import extract_management_facts
         from management_evidence import source_context, prerequisite_state, rule_options
-        from management_conditions import boolean_source_fields
-        boolean_fields = boolean_source_fields(cards.values())
         new_facts, fact_info = extract_management_facts(
             patient, cards.values(), diseases[0], ctx, llm_generate)
         ctx = {**ctx, **new_facts}
@@ -815,7 +813,7 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         for hit in hits:
             card = cards.get(hit.get("card_id"))
             if mode == "improved" and card and card.disease_protocol == diseases[0]:
-                gates = prerequisite_state(card, ctx, source_values, boolean_fields)
+                gates = prerequisite_state(card, ctx, source_values)
                 options = rule_options(card, ctx, gates)
                 source_options.extend(options)
                 if any(g["status"] == "not_met" for g in gates):
@@ -913,7 +911,7 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
             applicability.get("status", "unknown") if applicability else "no_structured_rule"
         )
         if mode == "improved":
-            options = rule_options(card, ctx, prerequisite_state(card, ctx, source_values, boolean_fields))
+            options = rule_options(card, ctx, prerequisite_state(card, ctx, source_values))
             if options and all(o["status"] == "not_applicable" for o in options):
                 result["management_diagnostics"]["not_applicable_card_ids"].append(card.card_id)
                 continue
@@ -926,7 +924,7 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
             entry["applicability"] = {"status": applicability.get("status"),
                                        "missing_inputs": applicability.get("missing_inputs", [])[:6]}
         if mode == "improved":
-            options = rule_options(card, ctx, prerequisite_state(card, ctx, source_values, boolean_fields))
+            options = rule_options(card, ctx, prerequisite_state(card, ctx, source_values))
             source_options.extend(options)
             entry["patient_rule_options"] = options
         prepared.append(entry)
@@ -960,39 +958,15 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
                 "same instruction or generic disclaimer across items. Missing conditions "
                 "are questions to clarify, not patient findings. "
                 "Each citation must match its section's permitted references and page: "
-                + json.dumps(references) + ". For Improved management, each item must additionally "
-                "include source_rules: [{card_id: exact card ID, rule_id: exact instruction rule ID}]. "
-                "Choose only supported rules and cite their source_pages. An unrelated false or "
-                "unknown rule in the same card does not invalidate a supported instruction. "
-                "Keep hypothetical complications and future discharge material out of current "
-                "recommendations; do not request their missing facts as current blockers.")
-        from management_conditions import current_instruction_evidence
-        focused, deferred = [], []
-        for category in ("Investigation", "Medication", "Advice"):
-            entries = [entry for entry in prepared if entry["clinical_category"] == category]
-            active = [entry for entry in entries if current_instruction_evidence(entry["patient_rule_options"], ctx)]
-            # With no positive indication, keep conditional evidence available
-            # for clarification. A known current pathway should not be crowded
-            # by hypothetical complications or future-stage material.
-            kept = active or entries
-            focused.extend(kept)
-            deferred.extend(entry["card_id"] for entry in entries if entry not in kept)
-        selected, omitted = pack_evidence(focused, patient, generation_prompt, "")
+                + json.dumps(references))
+        selected, omitted = pack_evidence(prepared, patient, generation_prompt, "")
         unique_options = {(o["card_id"], o["rule_id"], json.dumps(o["condition"], sort_keys=True)): o
                           for o in source_options}
-        from management_conditions import prioritize_reviews
-        result["source_review_options"] = prioritize_reviews(review_summary(unique_options.values()), ctx)
-        result["current_missing_inputs"] = sorted({field for entry in result["source_review_options"]
-                                                  if entry["current"] for field in entry["missing_inputs"]})
-        if age_info.get("message"):
-            result["current_missing_inputs"].append(age_info["message"])
-        result["current_missing_inputs"].extend(
-            "Source rules conflict: " + text for text in derived_trace.get("conflicts", []))
+        result["source_review_options"] = review_summary(unique_options.values())
         result["management_diagnostics"]["source_rule_outcomes"] = [
             {k: option[k] for k in ("card_id", "rule_id", "status", "missing_inputs", "unsupported_rule")}
             for option in unique_options.values()]
         result["management_diagnostics"]["omitted_for_prompt_budget"] = omitted
-        result["management_diagnostics"]["deferred_for_relevance"] = deferred
         result["management_diagnostics"]["prompt_categories"] = sorted({
             e["clinical_category"] for e in selected})
     else:
@@ -1044,11 +1018,6 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
     try:
         raw_response = llm_generate(prompt)
         response, errors = _parse_response_partial(raw_response)
-        linked = {}
-        if mode == "improved":
-            from management_links import instruction_links, apply_instruction_links
-            linked, link_errors = instruction_links(raw_response, response, source_options, allowed)
-            result["management_diagnostics"]["instruction_link_rejections"] = link_errors
         result["management_diagnostics"]["schema_rejections"] = errors[:20]
         response.probable_diagnosis = []
         validated, rejected = _validate_output(
@@ -1078,7 +1047,6 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
                         for field in ("dose", "route", "frequency", "duration", "instructions", "source_details"):
                             item[field] = None
                         item["eligibility"] = "conditional"
-            apply_instruction_links(output, validated, linked)
         own_missing = list(result["missing_info"])
         result.update(output)
         result["missing_info"] = own_missing + [

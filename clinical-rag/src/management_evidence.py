@@ -58,7 +58,7 @@ def source_context(cards, disease, context, trace):
     return context, candidates, resolved
 
 
-def prerequisite_state(card, context, source_values, boolean_fields=()):
+def prerequisite_state(card, context, source_values):
     """Bind an explicit source prerequisite to an enum assigned by source rules.
 
     Match only the prerequisite/classification text, never the title or an
@@ -94,8 +94,6 @@ def prerequisite_state(card, context, source_values, boolean_fields=()):
         actual = context.get(field)
         state = "unknown" if actual is None else "met" if actual == mentioned[0] else "not_met"
         gates.append({"field": field, "required_value": mentioned[0], "status": state})
-    from management_conditions import explicit_boolean_prerequisites
-    gates.extend(explicit_boolean_prerequisites(card, context, boolean_fields))
     return gates
 
 
@@ -128,17 +126,8 @@ def rule_options(card, context, gates=()):
         missing += [g["field"] for g in gates if g["status"] == "unknown"]
         result = rule.get(action_key)
         if isinstance(result, dict):
-            # Internal action identifiers are not patient-facing instructions.
-            result = result.get("result")
-        from management_conditions import age_specific_instruction
-        original_result = result
-        result, age_unresolved, age_missing = age_specific_instruction(result, context)
-        missing.extend(age_missing)
-        if age_unresolved and status is not TruthValue.FALSE:
-            status = TruthValue.UNKNOWN
-        elif isinstance(original_result, str) and result is None:
-            status = TruthValue.FALSE
-        unsupported = (tree is not None and not _rule_fields(tree)) or (age_unresolved and not age_missing)
+            result = result.get("result") or result.get("action")
+        unsupported = tree is not None and not _rule_fields(tree)
         options.append({
             "card_id": card.card_id, "title": card.card_title,
             "category": card.clinical_category, "rule_id": rule.get("rule_id"),
@@ -153,10 +142,6 @@ def rule_options(card, context, gates=()):
             "evidence": [{"card_id": card.card_id,
                           "pdf_page": rule.get("source_page") or card.pdf_page_numbers[0]}],
         })
-    from management_conditions import monitoring_option
-    monitoring = monitoring_option(card, context, gates)
-    if monitoring is not None and not states:
-        options.append(monitoring)
     return options
 
 
@@ -175,9 +160,8 @@ def pack_evidence(prepared, patient, prompt_builder, context_text, limit=19000):
                 "exceptions_contraindications", "applicability", "patient_rule_options")
         compact = {k: entry[k] for k in keys if k in entry and k != "patient_rule_options"}
         compact["patient_rule_options"] = [
-            {**{k: option[k] for k in ("rule_id", "status", "source_instruction", "condition",
-                                      "missing_inputs", "prerequisites", "unsupported_rule")},
-             "source_pages": [ref["pdf_page"] for ref in option["evidence"]]}
+            {k: option[k] for k in ("rule_id", "status", "source_instruction", "condition",
+                                    "missing_inputs", "prerequisites", "unsupported_rule")}
             for option in entry.get("patient_rule_options", [])]
         return compact
     # Compact every candidate consistently rather than silently deleting advice.
