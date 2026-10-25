@@ -5,6 +5,16 @@ from typing import Any
 
 NUMBER = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
 
+
+def _normalized_tokens(value: str) -> str:
+    return " ".join(re.findall(r"\w+", value.casefold(), flags=re.UNICODE))
+
+
+def _quote_present(quote: str, source: str) -> bool:
+    normalized_quote = _normalized_tokens(quote)
+    normalized_source = f" {_normalized_tokens(source)} "
+    return bool(normalized_quote) and f" {normalized_quote} " in normalized_source
+
 def rule_fields(cards: dict[str, Any]) -> set[str]:
     names: set[str] = set()
     def walk(obj):
@@ -43,7 +53,7 @@ def verify_facts(proposals: Any, patient: dict[str, Any], allowed: set[str]):
             rejected[name] = "Missing quoted provenance"
             continue
         quote, value = entry.get("quote"), entry.get("value")
-        if not isinstance(quote, str) or len(quote.strip()) < 3 or quote.strip().casefold() not in text:
+        if not isinstance(quote, str) or len(quote.strip()) < 3 or not _quote_present(quote, text):
             rejected[name] = "Quote not in original patient input"
             continue
         if value is None:
@@ -85,7 +95,7 @@ def verify_boolean_facts(
             continue
         value, quote = entry.get("value"), entry.get("quote")
         if (not isinstance(value, bool) or not isinstance(quote, str)
-                or len(quote.strip()) < 3 or quote.strip().casefold() not in source.casefold()):
+                or len(quote.strip()) < 3 or not _quote_present(quote, source)):
             continue
         proposed[field] = {"value": value, "quote": quote.strip()}
     if not proposed:
@@ -150,7 +160,7 @@ def verify_measurement_facts(
         value, quote = entry.get("value"), entry.get("quote")
         if isinstance(value, bool) or not isinstance(value, (float, int)):
             continue
-        if not isinstance(quote, str) or len(quote.strip()) < 3 or quote.strip().casefold() not in source.casefold():
+        if not isinstance(quote, str) or len(quote.strip()) < 3 or not _quote_present(quote, source):
             rejected[field] = "Numeric evidence quote unavailable"
             continue
         if not any(float(match.group()) == float(value) for match in NUMBER.finditer(quote)):

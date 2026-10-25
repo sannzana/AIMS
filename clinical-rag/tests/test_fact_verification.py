@@ -23,6 +23,31 @@ def test_numeric_fact_requires_exact_source_quote_and_value():
     assert rejected == {}
 
 
+def test_fact_quote_allows_normalized_label_and_measurement_spacing():
+    proposed = {"systolic_pressure": {
+        "value": 90, "quote": "BP 90 / 60 mmHg"
+    }}
+    facts, rejected = verify_measurement_facts(
+        proposed, {"measurements": "BP 90/60 mmHg"}, {"systolic_pressure"},
+        lambda prompt: '{"decisions":{"systolic_pressure":"confirmed"}}',
+    )
+    assert facts == {"systolic_pressure": 90}
+    assert rejected == {}
+
+
+def test_semantic_boolean_verification_accepts_source_field_synonym():
+    values, errors = verify_boolean_facts(
+        {"absent_or_weak_pulse": {
+            "value": True, "quote": "weak rapid pulse"
+        }},
+        {"clinical_findings": "weak rapid pulse"},
+        {"absent_or_weak_pulse"},
+        lambda prompt: '{"decisions":{"absent_or_weak_pulse":"confirmed"}}',
+    )
+    assert values == {"absent_or_weak_pulse": True}
+    assert errors == {}
+
+
 def test_invalid_measurement_is_not_silently_accepted():
     proposed = {"laboratory_value": {"value": 55, "quote": "lab result 12 units"}}
     facts, rejected = verify_facts(proposed, {"measurements": "lab result 12 units"}, {"laboratory_value"})

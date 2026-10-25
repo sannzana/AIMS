@@ -153,6 +153,25 @@ def test_triage_candidate_displays_without_second_llm_call():
     assert "not confirmed" in result["probable_diagnosis"][0]["text"]
 
 
+def test_uncertain_triage_candidate_is_rendered_as_differential():
+    card = Card(
+        card_id="SRC-1", disease_protocol="Protocol Alpha",
+        clinical_category="Diagnosis", card_title="Clinical Case Definition",
+        source_pdf_title="Protocol", source_version_edition=None,
+        pdf_page_numbers=[4],
+        exact_supporting_evidence_passages=[{"pdf_page": 4, "passage": "Evidence"}],
+        verified=True,
+    )
+    ranking = {"candidates": [{"card_id": "SRC-1", "disease": "Protocol Alpha",
+             "decision": "uncertain", "matched_features": ["patient-reported finding"],
+             "missing": ["confirmatory finding"]}]}
+    result = diagnosis_from_triage(ranking, {"SRC-1": card})
+    assert result["probable_diagnosis"] == []
+    assert len(result["uncertain_differentials"]) == 1
+    assert "conditional differential" in result["uncertain_differentials"][0]["text"]
+    assert "confirmatory finding" in result["missing_info"]
+
+
 def test_triage_display_rejects_invented_protocol():
     ranking = {"candidates": [{"card_id": "missing", "disease": "Invented",
               "matched_features": ["finding"]}]}

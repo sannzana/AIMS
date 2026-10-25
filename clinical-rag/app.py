@@ -114,6 +114,7 @@ def diagnosis_from_triage(ranking: dict[str, Any], cards: dict[str, Card]) -> di
     """
     from card_roles import assign_role
     items = []
+    uncertain = []
     for candidate in ranking.get("candidates", []):
         if not isinstance(candidate, dict):
             continue
@@ -127,18 +128,27 @@ def diagnosis_from_triage(ranking: dict[str, Any], cards: dict[str, Card]) -> di
         pages = card.pdf_page_numbers or []
         if not pages:
             continue
-        items.append({
+        item = {
             "text": "Suspected " + card.disease_protocol + " (source-backed clinical candidate; not confirmed)",
             "reason": "Patient-reported evidence: " + "; ".join(str(x) for x in quotes[:4]),
             "evidence": [{"card_id": card.card_id, "pdf_page": pages[0]}],
-        })
+        }
+        if candidate.get("decision") == "uncertain":
+            uncertain.append({
+                **item,
+                "text": "Possible " + card.disease_protocol + " (conditional differential; not confirmed)",
+                "reason": item["reason"] + ". Further evaluation is needed.",
+            })
+        else:
+            items.append(item)
     return {
         "probable_diagnosis": items, "investigations": [], "medication": [], "advice": [],
+        "uncertain_differentials": uncertain,
         "missing_info": [str(x) for c in ranking.get("candidates", [])
                          for x in (c.get("missing") or []) if isinstance(x, str)][:8],
         "evidence_card_ids": [x["evidence"][0]["card_id"] for x in items],
         "stage": "Diagnosis",
-        "notice": None if items else ranking.get("notice", "No verified source-backed candidate."),
+        "notice": None if items or uncertain else ranking.get("notice", "No verified source-backed candidate."),
     }
 
 
@@ -155,6 +165,7 @@ def _render_recommendation_item(st: Any, item: dict[str, Any]) -> None:
 def _render_recommendations(st: Any, result: dict[str, Any]) -> None:
     sections = (
         ("Probable diagnoses", "probable_diagnosis"),
+        ("Possible differentials", "uncertain_differentials"),
         ("Investigations", "investigations"),
         ("Medication planning", "medication"),
         ("Advice", "advice"),

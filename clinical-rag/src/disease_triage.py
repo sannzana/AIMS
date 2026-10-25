@@ -328,7 +328,8 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         decision = entry.get("decision")
         card = allowed[entry["card_id"]]
         item = {"disease": card.disease_protocol, "card_id": card.card_id,
-                "matched_features": quotes, "missing": entry.get("missing", [])}
+                "matched_features": quotes, "missing": entry.get("missing", []),
+                "decision": decision}
         if decision == "supported" and quotes:
             supported.append(item)
             decision_trace["accepted_supported_card_ids"].append(card.card_id)
@@ -350,9 +351,10 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         for value in values:
             found.setdefault(value["disease"], value)
         return list(found.values())
-    candidates = unique(supported)
-    if not candidates:
-        candidates = unique(uncertain)
+    # Keep supported candidates first, but retain relevant uncertain
+    # differentials alongside them instead of hiding them whenever one
+    # supported candidate exists.
+    candidates = unique(supported + uncertain)
     status = ("clear" if len(candidates) == 1 and supported else
               "ambiguous" if candidates else "unavailable" if failures else "no_match")
     shortlist_protocols = {str(item.get("protocol") or "").strip() for item in shortlist}
