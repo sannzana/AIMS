@@ -106,6 +106,34 @@ def test_disease_without_classification_cards_is_unchanged(monkeypatch):
     assert d["blocked_card_ids"] == [] and "CHI-014" in d["prompt_card_ids"]
 
 
+def test_chikungunya_supportive_cards_remain_conditional_when_facts_are_unknown(monkeypatch):
+    monkeypatch.setattr(
+        retrieve,
+        "retrieve_category",
+        lambda p, c, top_k=2, **kw: [
+            {"card_id": card_id}
+            for card_id in {
+                "Medication": ["CHI-014"],
+                "Advice": ["CHI-015"],
+                "Investigation": [],
+            }[c][:top_k]
+        ],
+    )
+    out = recommend_management(
+        {"age": 30},
+        mode="improved",
+        cards=CARDS,
+        diseases=["Chikungunya"],
+        llm_generate=lambda p: json.dumps({"missing_info": ["clinical context needed"]}),
+    )
+    diagnostics = out["management_diagnostics"]
+
+    assert {"CHI-014", "CHI-015"} <= set(diagnostics["prompt_card_ids"])
+    assert diagnostics["applicability_by_card"]["CHI-014"] == "undetermined"
+    assert diagnostics["applicability_by_card"]["CHI-015"] == "undetermined"
+    assert not {"CHI-014", "CHI-015"} & set(diagnostics["not_applicable_card_ids"])
+
+
 def test_rule_based_missing_info_survives_llm_missing_info(monkeypatch):
     monkeypatch.setattr(retrieve, "retrieve_category", _fake_retrieve)
     out = recommend_management({"_structured_facts": {}, "age": 30}, mode="improved",
