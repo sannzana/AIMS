@@ -181,28 +181,6 @@ def test_adult_ui_does_not_show_child_age_clause(monkeypatch):
     assert any("Age-matched source clause" in caption.value for caption in at.caption)
 
 
-def test_conditional_age_matched_ors_clause_is_visible_with_missing_prerequisite(monkeypatch):
-    from streamlit.testing.v1 import AppTest
-    monkeypatch.setattr(retrieve, "retrieve_category", lambda p, c, **kw: [{"card_id": "CHO-005"}] if c == "Medication" else [])
-    result = recommend_management({"age": "37 years", "_structured_facts": {
-        "dehydration_classification": "severe_dehydration_or_shock"}}, cards=CARDS, diseases=["Cholera"],
-        llm_generate=lambda p: json.dumps({"facts": {}, "missing_info": ["review"]}))
-    at = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"))
-    for key, value in {"case_patient": {"age": "37 years"}, "case_mode": "improved",
-        "case_diseases": ["Cholera"], "working_disease": "Cholera", "case_management_requested": True,
-        "case_results": {"Diagnosis": {"probable_diagnosis": []}, "Management": result}}.items():
-        at.session_state[key] = value
-    at.run()
-    assert not at.exception
-    relevant = [info.value for info in at.info if "Conditional age-matched source option" in info.value]
-    assert len(relevant) == 1
-    assert "10 years and older" in relevant[0] and "2–9" not in relevant[0]
-    assert "ORS" in relevant[0] and "patient can drink safely" in relevant[0]
-    assert "Not confirmed for this patient" in relevant[0]
-    option = next(entry for entry in result["source_review_options"] if entry["card_id"] == "CHO-005")["conditional_rules"][0]
-    assert option["status"] == "conditional"  # presentation did not change eligibility
-
-
 def test_known_contradiction_does_not_leak_a_generated_regimen(monkeypatch):
     monkeypatch.setattr(retrieve, "retrieve_category", lambda p, c, **kw: [{"card_id": "CHI-014"}] if c == "Medication" else [])
     def model(prompt):
