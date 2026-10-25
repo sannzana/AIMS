@@ -35,8 +35,9 @@ def test_relevant_conditional_option_and_unknown_complications_are_separate(monk
 
 def test_pending_classification_sources_remain_visible_with_consistent_message(monkeypatch):
     result = _result(monkeypatch, {})
-    primary, _ = split_conditional_sources(result["source_review_options"], result["management_diagnostics"])
-    assert "CHO-004" in {entry["card_id"] for entry in primary}
+    primary, additional = split_conditional_sources(result["source_review_options"], result["management_diagnostics"])
+    assert "CHO-004" not in {entry["card_id"] for entry in primary}
+    assert "CHO-004" in {entry["card_id"] for entry in additional}
     old = next(text for text in result["missing_info"] if text.startswith("Not shown until "))
     rewritten = conditional_message(old)
     assert rewritten.startswith("Not selected for the main recommendation until ")
@@ -71,3 +72,49 @@ def test_improved_ui_compacts_additional_sources_and_preserves_matching_guidance
     assert "Start intravenous fluids immediately" in text
     assert any("Additional source material" in item.label for item in at.expander)
     assert "Unselected source alternatives" not in text  # no unrelated age display change reintroduced
+
+
+def test_unknown_parent_is_not_promoted_by_known_age():
+    entry = {"card_id": "RENAMED", "supported_rules": [], "conditional_rules": [{
+        "condition": {"field": "age_months", "operator": ">=", "value": 12},
+        "matched_fields": ["age_months"], "prerequisites": [{"status": "unknown"}]}]}
+    before = copy.deepcopy(entry)
+    assert split_conditional_sources([entry], {}) == ([], [entry])
+    assert entry == before
+
+
+def test_extraction_failure_keeps_unassessed_material_separate_without_losing_supported_rules():
+    pending = {"card_id": "PENDING", "supported_rules": [], "conditional_rules": [{
+        "condition": {"field": "age_months"}, "matched_fields": ["age_months"]}]}
+    supported = dict(pending, card_id="MATCHED", supported_rules=[{"source_instruction": "Known guidance"}])
+    diagnostics = {"management_fact_extraction": {"error": "LLMRateLimitError"}}
+    assert split_conditional_sources([pending, supported], diagnostics) == ([supported], [pending])
+    # A generation failure alone does not undo successfully assessed source facts.
+    assert split_conditional_sources([pending], {"error_type": "LLMRateLimitError"}) == ([pending], [])
+
+
+def test_provider_failure_is_reported_as_failure_not_missing_patient_information(monkeypatch):
+    from llm import LLMRateLimitError
+    from streamlit.testing.v1 import AppTest
+    _result(monkeypatch, {})  # install the same real-card retrieval fixture
+    def unavailable(prompt):
+        raise LLMRateLimitError("0")
+    result = recommend_management({"age": "37 years", "clinical_findings": "weak rapid pulse"},
+                                  cards=CARDS, diseases=["Cholera"], llm_generate=unavailable)
+    diagnostics = result["management_diagnostics"]
+    assert diagnostics["management_fact_extraction"]["error"]
+    before = copy.deepcopy(result)
+    primary, additional = split_conditional_sources(result["source_review_options"], diagnostics)
+    assert not primary
+    assert additional
+    assert result == before
+    at = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"))
+    for key, value in {"case_patient": {"age": "37 years"}, "case_mode": "improved",
+        "case_diseases": ["Cholera"], "working_disease": "Cholera", "case_management_requested": True,
+        "case_results": {"Diagnosis": {"probable_diagnosis": []}, "Management": result}}.items():
+        at.session_state[key] = value
+    at.run()
+    assert not at.exception
+    assert any("Patient-fact extraction did not complete" in item.value for item in at.warning)
+    assert not any(item.label == "Missing management information" for item in at.expander)
+    assert any("Additional source material" in item.label for item in at.expander)

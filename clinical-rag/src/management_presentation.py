@@ -18,11 +18,16 @@ def split_conditional_sources(entries, diagnostics):
     Unknown complications and unsupported table rows stay available in a compact
     additional-material section. This grouping does not approve any instruction.
     """
-    blocked = set(diagnostics.get("blocked_card_ids", []))
+    extraction_failed = bool(diagnostics.get("management_fact_extraction", {}).get("error"))
     primary, additional = [], []
     for entry in entries:
         pending = entry.get("conditional_rules", [])
         if not pending:
+            continue
+        unknown_pathway = any(gate.get("status") == "unknown" for rule in pending
+                              for gate in rule.get("prerequisites", []))
+        if not entry.get("supported_rules") and (extraction_failed or unknown_pathway):
+            additional.append(entry)
             continue
         indication_known = any(
             bool(_fields(rule.get("condition")))
@@ -30,7 +35,7 @@ def split_conditional_sources(entries, diagnostics):
             for rule in pending if not rule.get("unsupported_rule"))
         pathway_known = not any(rule.get("unsupported_rule") for rule in pending) and any(
             gate.get("status") == "met" for rule in pending for gate in rule.get("prerequisites", []))
-        relevant = bool(entry.get("supported_rules")) or indication_known or pathway_known or entry["card_id"] in blocked
+        relevant = bool(entry.get("supported_rules")) or indication_known or pathway_known
         (primary if relevant else additional).append(entry)
     return primary, additional
 

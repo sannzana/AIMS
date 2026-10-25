@@ -414,7 +414,13 @@ def main() -> None:
         st.subheader("Treatment & Management Plan")
         if output.get("notice"):
             st.warning(output["notice"])
-        if output.get("missing_info"):
+        extraction_failed = (st.session_state.get("case_mode") == "improved" and bool(
+            output.get("management_diagnostics", {}).get("management_fact_extraction", {}).get("error")))
+        if extraction_failed:
+            st.warning("Patient-fact extraction did not complete because the provider request failed. "
+                       "Unassessed plans are reference material, not treatment recommendations. "
+                       "This does not mean the patient omitted all the listed findings.")
+        if output.get("missing_info") and not extraction_failed:
             with st.expander("Missing management information"):
                 for detail in output["missing_info"]:
                     if st.session_state.get("case_mode") == "improved":
