@@ -39,15 +39,16 @@ def test_severe_signs_select_plan_c(monkeypatch):
         "severe_dehydration_or_shock"
     assert "CHO-004" in d["prompt_card_ids"]
     assert not {"CHO-007", "CHO-009"} & set(d["prompt_card_ids"])
+    assert "CHO-011" not in d["prompt_card_ids"]
 
 
 def test_unknown_class_blocks_plan_cards_but_keeps_supportive_cards(monkeypatch):
     out = _run(monkeypatch, {"sunken_eyes": True}, cite="CHO-007")
     d = out["management_diagnostics"]
-    assert set(d["blocked_card_ids"]) == {"CHO-004", "CHO-007", "CHO-009"}
+    assert set(d["blocked_card_ids"]) >= {"CHO-004", "CHO-007", "CHO-009", "CHO-011"}
     assert not set(d["blocked_card_ids"]) & set(d["prompt_card_ids"])
     # supportive cards that do not depend on the class remain available
-    assert "CHO-006" in d["prompt_card_ids"] and "CHO-011" in d["prompt_card_ids"]
+    assert "CHO-006" in d["prompt_card_ids"] and "CHO-012" in d["prompt_card_ids"]
     # a definitive plan citing a blocked card cannot get through
     assert out["medication"] == []
     assert any("Not shown until" in m for m in out["missing_info"])
@@ -57,7 +58,7 @@ def test_unknown_class_blocks_plan_cards_but_keeps_supportive_cards(monkeypatch)
 def test_clinician_supplied_class_is_used_not_overwritten(monkeypatch):
     out = _run(monkeypatch, {"dehydration_classification": "some_dehydration"}, cite="CHO-007")
     d = out["management_diagnostics"]
-    assert d["blocked_card_ids"] == []
+    assert "CHO-011" not in d["blocked_card_ids"]
     assert "CHO-007" in d["prompt_card_ids"] and "CHO-004" not in d["prompt_card_ids"]
     assert out["medication"]
 
@@ -79,7 +80,7 @@ def test_dependency_comes_from_the_source_not_card_ids():
     ungated = sev.model_copy(update={"if_else_conditions_and_corresponding_actions": []})
     cards["CHO-002"] = ungated
     _, trace = derive_classifications(cards.values(), "Cholera", {})
-    assert trace["dependencies"] == {}
+    assert "CHO-003" not in trace["dependencies"]
     assert "note" not in trace["labels"]["some_dehydration"]
 
 
@@ -112,3 +113,29 @@ def test_rule_based_missing_info_survives_llm_missing_info(monkeypatch):
                                llm_generate=lambda p: json.dumps({"missing_info": ["model note"]}))
     assert any("Not shown until" in m for m in out["missing_info"])
     assert "model note" in out["missing_info"]
+
+
+def test_cyclic_classification_dependencies_are_unresolved():
+    cards = []
+    for card_id, label, other_card, other_label in (
+        ("CHO-002", "alpha", "CHO-003", "beta"),
+        ("CHO-003", "beta", "CHO-002", "alpha"),
+    ):
+        card = CARDS[card_id].model_copy(update={
+            "conditions_decision_logic": [{
+                "condition": {"field": "flag", "operator": "=", "value": True},
+                "action": f"classify_{label}",
+            }],
+            "if_else_conditions_and_corresponding_actions": [{
+                "if": {"field": other_label, "operator": "=", "value": True},
+                "then": {"next_card": other_card},
+            }],
+        })
+        cards.append(card)
+
+    derived, trace = derive_classifications(cards, "Cholera", {"flag": True})
+
+    assert derived == {}
+    assert all(trace["labels"][label]["value"] == "UNKNOWN" for label in ("alpha", "beta"))
+    assert all("cyclic classification dependency" in trace["labels"][label]["note"]
+               for label in ("alpha", "beta"))

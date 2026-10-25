@@ -19,6 +19,7 @@ supplied is never overwritten.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable
 
 from applicability import TruthValue, _evaluate_tree
@@ -26,6 +27,7 @@ from schema import Card
 
 PREFIX = "classify_"
 NEXT_KEYS = ("next_card",)
+_CARD_REF = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 
 
 def _walk(node: Any) -> Iterable[dict[str, Any]]:
@@ -57,20 +59,52 @@ def classification_rules(cards: Iterable[Card], disease: str) -> list[tuple[str,
     return found
 
 
-def dependencies(cards: Iterable[Card], disease: str, labels: set[str]) -> dict[str, tuple[str, bool]]:
-    """card_id -> (gating label, required value) from 'if label = v then next_card'."""
-    gates: dict[str, tuple[str, bool]] = {}
+def _referenced_card_ids(value: Any, card_ids: set[str]) -> set[str]:
+    if isinstance(value, str):
+        return {ref for ref in _CARD_REF.findall(value) if ref in card_ids}
+    if isinstance(value, dict):
+        return set().union(*(_referenced_card_ids(item, card_ids) for item in value.values()))
+    if isinstance(value, list):
+        return set().union(*(_referenced_card_ids(item, card_ids) for item in value))
+    return set()
+
+
+def dependencies(
+    cards: Iterable[Card], disease: str, labels: set[str]
+) -> dict[str, tuple[str, TruthValue]]:
+    """card_id -> (gating label, required truth) from source card links."""
+    cards = list(cards)
+    card_ids = {card.card_id for card in cards}
+    gates: dict[str, tuple[str, TruthValue]] = {}
     for card in cards:
         if card.disease_protocol != disease:
             continue
-        for rule in card.model_dump().get("if_else_conditions_and_corresponding_actions") or []:
+        raw = card.model_dump()
+        for rule in raw.get("if_else_conditions_and_corresponding_actions") or []:
             cond = rule.get("if") if isinstance(rule, dict) else None
             then = rule.get("then") if isinstance(rule, dict) else None
             if not (isinstance(cond, dict) and isinstance(then, dict)):
                 continue
             target = next((then[k] for k in NEXT_KEYS if isinstance(then.get(k), str)), None)
             if target and cond.get("field") in labels and isinstance(cond.get("value"), bool):
-                gates[target] = (cond["field"], cond["value"])
+                gates[target] = (
+                    cond["field"],
+                    TruthValue.TRUE if cond["value"] else TruthValue.FALSE,
+                )
+        for rule in raw.get("conditions_decision_logic") or []:
+            if not isinstance(rule, dict):
+                continue
+            condition_labels = {
+                cond["value"]
+                for cond in _conditions(rule.get("condition"))
+                if cond.get("value") in labels
+            }
+            for target in _referenced_card_ids(rule, card_ids) | _referenced_card_ids(
+                raw.get("if_else_conditions_and_corresponding_actions"), card_ids
+            ):
+                if target == card.card_id or len(condition_labels) != 1:
+                    continue
+                gates.setdefault(target, (next(iter(condition_labels)), TruthValue.TRUE))
     return gates
 
 
@@ -106,35 +140,56 @@ def derive_classifications(
     cards = list(cards)
     rules = classification_rules(cards, disease)
     labels = {label for _, label, _ in rules}
-    trace: dict[str, Any] = {"labels": {}, "fields": {}, "conflicts": [], "dependencies": {}}
+    trace: dict[str, Any] = {
+        "labels": {}, "fields": {}, "conflicts": [], "dependencies": {},
+        "blocked_cards": {},
+    }
     if not labels:
         return {}, trace
     gates = dependencies(cards, disease, labels)
-    trace["dependencies"] = {card: f"{g}={v}" for card, (g, v) in gates.items()}
+    trace["dependencies"] = {
+        card: f"{label}={required is TruthValue.TRUE}"
+        for card, (label, required) in gates.items()
+    }
 
     raw_state: dict[str, TruthValue] = {
         label: _evaluate_tree(tree, context) for _, label, tree in rules}
     card_of = {label: card_id for card_id, label, _ in rules}
+    groups = field_groups(cards, disease, labels)
     state: dict[str, TruthValue] = {}
+    for field, group in groups.items():
+        supplied = context.get(field)
+        if supplied not in (None, ""):
+            for label in group["labels"]:
+                state[label] = (
+                    TruthValue.TRUE if label == supplied else TruthValue.FALSE
+                )
     notes: dict[str, str] = {}
 
-    def resolve(label: str, seen: tuple[str, ...] = ()) -> TruthValue:
+    visiting: list[str] = []
+    cycle_labels: set[str] = set()
+
+    def resolve(label: str) -> TruthValue:
         if label in state:
             return state[label]
+        if label in visiting:
+            cycle_labels.update(visiting[visiting.index(label):])
+            return TruthValue.UNKNOWN
+        visiting.append(label)
         value = raw_state[label]
         gate = gates.get(card_of[label])
-        if gate and gate[0] in raw_state and gate[0] not in seen and gate[0] != label:
-            gate_label, required = gate
-            gate_value = resolve(gate_label, seen + (label,))
-            wanted = TruthValue.TRUE if required else TruthValue.FALSE
+        if gate and gate[0] in raw_state:
+            gate_label, wanted = gate
+            gate_value = resolve(gate_label)
             if gate_value == wanted:
                 pass
             elif gate_value == TruthValue.UNKNOWN:
                 value = TruthValue.UNKNOWN
-                notes[label] = f"waits for {gate_label} to be {str(required).lower()}"
+                notes[label] = f"waits for {gate_label} to be {wanted is TruthValue.TRUE}"
             else:
                 value = TruthValue.FALSE
                 notes[label] = f"ruled out because {gate_label} is {gate_value.value}"
+        visiting.pop()
         state[label] = value
         return value
 
@@ -142,9 +197,22 @@ def derive_classifications(
         value = resolve(label)
         trace["labels"][label] = {"card_id": card_id, "value": value.value,
                                   **({"note": notes[label]} if label in notes else {})}
+    for label in cycle_labels:
+        state[label] = TruthValue.UNKNOWN
+        trace["labels"][label]["value"] = TruthValue.UNKNOWN.value
+        trace["labels"][label]["note"] = (
+            "cyclic classification dependency: "
+            + " -> ".join(sorted(cycle_labels))
+        )
+    card_by_id = {card.card_id: card for card in cards}
+    for card_id, (label, wanted) in gates.items():
+        if (card_by_id.get(card_id)
+                and card_by_id[card_id].clinical_category != "Diagnosis"
+                and label in state and state[label] != wanted):
+            trace["blocked_cards"][card_id] = label
 
     derived: dict[str, Any] = {}
-    for field, group in field_groups(cards, disease, labels).items():
+    for field, group in groups.items():
         entry: dict[str, Any] = {"labels": sorted(group["labels"]),
                                  "blocked_cards": sorted(group["cards"])}
         trace["fields"][field] = entry
@@ -173,4 +241,5 @@ def blocked_cards(trace: dict[str, Any]) -> dict[str, str]:
     for field, entry in trace.get("fields", {}).items():
         for card_id in entry.get("blocked_cards", []):
             out[card_id] = field
+    out.update(trace.get("blocked_cards", {}))
     return out
