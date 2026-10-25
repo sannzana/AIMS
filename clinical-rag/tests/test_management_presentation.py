@@ -118,3 +118,25 @@ def test_provider_failure_is_reported_as_failure_not_missing_patient_information
     assert any("Patient-fact extraction did not complete" in item.value for item in at.warning)
     assert not any(item.label == "Missing management information" for item in at.expander)
     assert any("Additional source material" in item.label for item in at.expander)
+
+
+def test_guidance_changes_highlights_only_new_matches_and_keeps_removed_visible():
+    from management_presentation import guidance_changes
+    a = {"card_id": "RENAMED", "rule_id": "A", "source_instruction": "Existing guidance"}
+    b = {"card_id": "RENAMED", "rule_id": "B", "source_instruction": "New guidance"}
+    old = {"source_review_options": [{"supported_rules": [a]}]}
+    updated = {"source_review_options": [{"supported_rules": [a, b]}]}
+    before = copy.deepcopy((old, updated))
+    assert guidance_changes(old, updated) == {"added": {("RENAMED", "B", "New guidance")}, "removed": []}
+    assert guidance_changes(updated, old) == {"added": set(), "removed": [b]}
+    assert guidance_changes(old, old) == {"added": set(), "removed": []}
+    assert (old, updated) == before
+
+
+def test_source_wording_change_is_not_treated_as_unchanged():
+    from management_presentation import guidance_changes
+    old = {"source_review_options": [{"supported_rules": [{"card_id": "X", "rule_id": "R", "source_instruction": "Before"}]}]}
+    new = {"source_review_options": [{"supported_rules": [{"card_id": "X", "rule_id": "R", "source_instruction": "After"}]}]}
+    changes = guidance_changes(old, new)
+    assert changes["added"] == {("X", "R", "After")}
+    assert changes["removed"][0]["source_instruction"] == "Before"

@@ -25,7 +25,7 @@ def render_questions(original, cards):
         st.caption("Optional source-based questions. Answer only if known; Unknown or Skip keeps existing guidance. "
                    "Answers affect management only, not the original diagnosis. Source field labels may require clinician interpretation.")
         if state["view"] is not original:
-            st.write("Additional user-supplied answers: " + "; ".join(
+            st.info("Answers applied: " + "; ".join(
                 f"{field.replace('_', ' ')}: {value}" for field, value in
                 state["view"].get("_clarification_answers", {}).items()))
             st.caption("Original generated management is retained below; it has not been regenerated.")

@@ -416,6 +416,25 @@ def main() -> None:
             from management_clarification_ui import current_view
             output = current_view(original_management)
         st.subheader("Treatment & Management Plan")
+        guidance_updates = {"added": set(), "removed": []}
+        if st.session_state.get("case_mode") == "improved" and output.get("_clarification_answers"):
+            from management_presentation import guidance_changes
+            guidance_updates = guidance_changes(original_management, output)
+            with st.container(border=True):
+                st.markdown("#### What changed after your answers")
+                st.info("Answers applied to source rules. Diagnosis is unchanged; clinician review is required.")
+                cols = st.columns(3)
+                cols[0].metric("Answers applied", len(output["_clarification_answers"]))
+                cols[1].metric("New source matches", len(guidance_updates["added"]))
+                cols[2].metric("No longer matched", len(guidance_updates["removed"]))
+                if not guidance_updates["added"] and not guidance_updates["removed"]:
+                    st.caption("Your answers were saved; no supported source instruction changed.")
+                if guidance_updates["removed"]:
+                    with st.expander("Previously matched guidance — no longer a current source match"):
+                        st.warning("These previous matches are not part of the updated matching guidance. Review the current conditions and restrictions below.")
+                        for rule in guidance_updates["removed"]:
+                            st.write(rule["source_instruction"])
+                            st.caption(f"Previous source: {rule['card_id']} / {rule.get('rule_id')}")
         if output.get("notice"):
             st.warning(output["notice"])
         extraction_failed = (st.session_state.get("case_mode") == "improved" and bool(
@@ -492,7 +511,11 @@ def main() -> None:
                         if rule["source_instruction"] in shown:
                             continue
                         shown.add(rule["source_instruction"])
-                        st.write("• " + rule["source_instruction"])
+                        identity = (rule["card_id"], rule.get("rule_id"), rule["source_instruction"])
+                        if identity in guidance_updates["added"]:
+                            st.success("NEW AFTER YOUR ANSWERS — source match; clinician review required\n\n" + rule["source_instruction"])
+                        else:
+                            st.write("• " + rule["source_instruction"])
                         pages = ", ".join(str(ref["pdf_page"]) for ref in rule["evidence"])
                         st.caption(f"Source: {rule['card_id']} — PDF page {pages}")
                         if rule.get("age_clause_selection"):

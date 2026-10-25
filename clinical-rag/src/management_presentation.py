@@ -46,3 +46,14 @@ def conditional_message(text):
         return ("Not selected for the main recommendation until " + text[len(prefix):]
                 + " Conditional source options remain available below.")
     return text
+
+
+def guidance_changes(original, updated):
+    """Compare supported source instructions; never evaluate clinical rules."""
+    def supported(output):
+        return {(r['card_id'], r.get('rule_id'), r.get('source_instruction')): r
+                for entry in output.get('source_review_options', [])
+                for r in entry.get('supported_rules', []) if r.get('source_instruction')}
+    before, after = supported(original), supported(updated)
+    return {"added": set(after) - set(before),
+            "removed": [before[key] for key in before if key not in after]}

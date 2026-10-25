@@ -130,10 +130,13 @@ def test_ui_apply_preserves_original_diagnosis_and_reset_restores_original(monke
     assert at.session_state["case_results"]["Diagnosis"] == diagnosis
     assert at.session_state["case_results"]["Management"] == result
     assert at.session_state["management_clarification"]["view"]["_clarification_answers"]["patient_can_drink_safely"] is True
+    assert any("NEW AFTER YOUR ANSWERS" in item.value and "10 years" in item.value for item in at.success)
+    assert any(item.label == "New source matches" and int(item.value) > 0 for item in at.metric)
     next(b for b in at.button if b.label == "Reset additional answers").click()
     at.run()
     assert not at.exception
     assert at.session_state["management_clarification"]["view"] == result
+    assert not at.success
 
 
 def test_medication_safety_questions_and_answers_are_instruction_scoped(monkeypatch):
