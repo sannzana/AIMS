@@ -670,6 +670,7 @@ def _enforce_management_evidence_boundary(
     response: RecommendationResponse,
     allowed_cards: dict[str, Card],
     disease: str,
+    patient_context: dict[str, Any] | None = None,
 ) -> tuple[RecommendationResponse, list[str]]:
     """Validate each item against its own clinical category and chosen protocol.
 
@@ -696,6 +697,42 @@ def _enforce_management_evidence_boundary(
                     f"selected protocol and {category} category"
                 )
             else:
+                applicability = [
+                    card_rule_applicability(card, patient_context or {})
+                    if hasattr(card, "model_dump") or hasattr(card, "conditions_value")
+                    else None
+                    for card in citations
+                ]
+                if any(state and state.get("status") == "not_applicable"
+                       for state in applicability):
+                    rejected.append(
+                        f"{section}.{index}: cited source conditions are contradicted "
+                        "by the known patient facts"
+                    )
+                    continue
+                uncertain = []
+                for reference, card, state in zip(item.evidence, citations, applicability):
+                    if state is None:
+                        uncertain.append(
+                            f"{reference.card_id}: source eligibility is not structured"
+                        )
+                    elif state.get("status") == "undetermined":
+                        missing = state.get("missing_inputs") or []
+                        uncertain.append(
+                            f"{reference.card_id}: eligibility is unknown"
+                            + (f"; not known: {', '.join(missing[:8])}" if missing else "")
+                        )
+                if uncertain and section in {"medication", "advice"}:
+                    if hasattr(item, "reason"):
+                        item.reason = (
+                            "Conditional source guidance; do not treat this as "
+                            "patient-specific approval. " + item.reason
+                        )
+                    missing_info = getattr(response, "missing_info", None)
+                    if isinstance(missing_info, list):
+                        for note in uncertain:
+                            if note not in missing_info:
+                                missing_info.append(note)
                 accepted.append(item)
         setattr(response, section, accepted)
     return response, rejected
@@ -859,7 +896,7 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
             patient_context=ctx)
         if mode == "improved":
             validated, boundary_rejections = _enforce_management_evidence_boundary(
-                validated, allowed, diseases[0]
+                validated, allowed, diseases[0], patient_context=ctx
             )
             rejected.extend(boundary_rejections)
         result["management_diagnostics"]["validation_rejections"] = rejected[:20]

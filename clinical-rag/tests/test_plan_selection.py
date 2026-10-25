@@ -5,6 +5,7 @@ from pathlib import Path
 import retrieve
 from build_index import load_cards
 from derived_fields import blocked_cards, derive_classifications
+from disease_triage import triage
 from recommend import recommend_management
 
 CARDS = {c.card_id: c for c in load_cards(Path("data/cards.jsonl"))}
@@ -53,6 +54,54 @@ def test_unknown_class_blocks_plan_cards_but_keeps_supportive_cards(monkeypatch)
     assert out["medication"] == []
     assert any("Not shown until" in m for m in out["missing_info"])
     assert any("lethargic_or_unconscious" in m for m in out["missing_info"])
+
+
+def test_management_keeps_unknown_medication_and_advice_conditional(monkeypatch):
+    def retrieve_management(_patient, category, top_k=2, **_kwargs):
+        return [
+            {"card_id": card_id}
+            for card_id in {
+                "Medication": ["CHO-020"],
+                "Advice": ["CHO-012"],
+                "Investigation": [],
+            }[category][:top_k]
+        ]
+
+    monkeypatch.setattr(retrieve, "retrieve_category", retrieve_management)
+
+    def model(_prompt):
+        return json.dumps({
+            "medication": [{
+                "text": "Administer IV dextrose now.",
+                "reason": "Treat hypoglycaemia.",
+                "evidence": [{
+                    "card_id": "CHO-020",
+                    "pdf_page": CARDS["CHO-020"].pdf_page_numbers[0],
+                }],
+            }],
+            "advice": [{
+                "text": "Discharge the patient.",
+                "reason": "Discharge criteria are met.",
+                "evidence": [{
+                    "card_id": "CHO-012",
+                    "pdf_page": CARDS["CHO-012"].pdf_page_numbers[0],
+                }],
+            }],
+            "missing_info": [],
+        })
+
+    out = recommend_management(
+        {"age": 34, "_structured_facts": {}},
+        mode="improved",
+        cards=CARDS,
+        diseases=["Cholera"],
+        llm_generate=model,
+    )
+
+    assert out["medication"] and out["advice"]
+    assert out["medication"][0]["eligibility"] == "conditional"
+    assert "Conditional source guidance" in out["advice"][0]["reason"]
+    assert any("blood_glucose" in item for item in out["missing_info"])
 
 
 def test_clinician_supplied_class_is_used_not_overwritten(monkeypatch):
@@ -141,6 +190,71 @@ def test_rule_based_missing_info_survives_llm_missing_info(monkeypatch):
                                llm_generate=lambda p: json.dumps({"missing_info": ["model note"]}))
     assert any("Not shown until" in m for m in out["missing_info"])
     assert "model note" in out["missing_info"]
+
+
+def test_source_facts_reach_severe_classification_from_synonym_and_measurements():
+    patient = {
+        "clinical_findings": "weak rapid pulse, sunken eyes, dry mouth",
+        "measurements": "BP 90/60 mmHg, pulse 118 bpm",
+    }
+    def model(prompt):
+        if "separate semantic fact verification pass" in prompt:
+            return json.dumps({"decisions": {
+                "absent_or_weak_pulse": "confirmed",
+                "sunken_eyes": "confirmed",
+            }})
+        return json.dumps({"candidates": [], "facts": {
+            "absent_or_weak_pulse": {
+                "value": True, "quote": "weak rapid pulse"
+            },
+            "sunken_eyes": {
+                "value": True, "quote": "sunken eyes"
+            },
+        }})
+
+    ranking = triage(
+        patient,
+        CARDS,
+        llm_generate=model,
+        candidate_search=lambda _patient, _cards: ["CHI-011", "DEN-DF-DX-001"],
+    )
+    derived, trace = derive_classifications(
+        CARDS.values(), "Cholera", ranking["features"]
+    )
+
+    assert ranking["features"]["absent_or_weak_pulse"] is True
+    assert ranking["features"]["sunken_eyes"] is True
+    assert derived["dehydration_classification"] == "severe_dehydration_or_shock"
+    assert trace["fields"]["dehydration_classification"]["status"] == "decided"
+
+
+def test_overlapping_chikungunya_dengue_candidates_keep_supported_and_uncertain_status():
+    patient = {
+        "symptoms": "high fever, severe joint pain, headache, rash",
+        "clinical_findings": "swollen and tender joints, difficulty walking",
+    }
+    def model(prompt):
+        return json.dumps({"candidates": [
+            {"card_id": "CHI-011", "decision": "supported",
+             "patient_quotes": ["severe joint pain"], "missing": []},
+            {"card_id": "DEN-DF-DX-001", "decision": "uncertain",
+             "patient_quotes": ["high fever", "rash"],
+             "missing": ["additional dengue evaluation"]},
+        ], "facts": {}})
+
+    ranking = triage(
+        patient,
+        CARDS,
+        llm_generate=model,
+        candidate_search=lambda _patient, _cards: ["CHI-011", "DEN-DF-DX-001"],
+    )
+
+    assert {item["disease"] for item in ranking["candidates"]} == {
+        "Chikungunya", "Dengue"
+    }
+    assert {item["decision"] for item in ranking["candidates"]} == {
+        "supported", "uncertain"
+    }
 
 
 def test_cyclic_classification_dependencies_are_unresolved():
