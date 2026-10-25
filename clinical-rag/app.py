@@ -493,9 +493,23 @@ def main() -> None:
                                 if card and card.model_dump().get("relevant_symptoms_or_prerequisites"):
                                     st.write("Other source prerequisites: " + str(card.model_dump()["relevant_symptoms_or_prerequisites"]))
                 unresolved = [entry for entry in reviews if entry["conditional_rules"]]
-                if not items and not matches:
+                age_options = [(entry, rule) for entry in unresolved for rule in entry["conditional_rules"]
+                               if rule["status"] == "conditional" and rule.get("source_instruction")
+                               and (rule.get("age_clause_selection") or {}).get("status") == "matched"]
+                if not items and not matches and not age_options:
                     st.info("More information is needed; review the conditional options below."
                             if unresolved else "No matching source guidance available for this section.")
+                shown_age_options = set()
+                for entry, rule in age_options:
+                    key = (rule["card_id"], rule["source_instruction"])
+                    if key in shown_age_options:
+                        continue
+                    shown_age_options.add(key)
+                    missing = ", ".join(field.replace("_", " ") for field in rule["missing_inputs"])
+                    st.info("Conditional age-matched source option — " + entry["title"] + ": "
+                            + rule["source_instruction"] + " Not confirmed for this patient. "
+                            + ("Confirm before use: " + missing + "." if missing else "Source prerequisites require review."))
+                    st.caption("Source: " + rule["card_id"])
                 if unresolved:
                     with st.expander("Conditional source options — information needed before use"):
                         st.write("These requirements come from the source. They are not findings reported by the patient or instructions to start treatment.")
