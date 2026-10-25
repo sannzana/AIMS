@@ -420,14 +420,56 @@ def main() -> None:
         for section, key in (("Investigations", "investigations"), ("Treatment", "medication"), ("Advice", "advice")):
             st.markdown(f"### {section}")
             items = output.get(key, [])
+            improved = st.session_state.get("case_mode") == "improved"
+            if improved:
+                from management_evidence import condition_text
+                items = [item for item in items if not item.get("review_required")]
             if not items:
-                st.info("No validated recommendation available for this section; clinician review required.")
+                st.info("No patient-specific recommendation confirmed; see source matches and information needed below."
+                        if improved else "No validated recommendation available for this section; clinician review required.")
             for item in items:
                 _render_recommendation_item(st, item)
                 if key == "medication":
                     details = {x: item[x] for x in ("name", "dose", "route", "frequency", "duration", "instructions") if item.get(x)}
                     if details:
                         st.json(details)
+            if improved:
+                category = {"investigations": "Investigation", "medication": "Medication", "advice": "Advice"}[key]
+                reviews = [entry for entry in output.get("source_review_options", [])
+                           if entry["category"] == category]
+                matches = [rule for entry in reviews for rule in entry["supported_rules"]
+                           if rule.get("source_instruction")]
+                if matches:
+                    st.write("Source instructions matching known facts — clinician review required:")
+                    for rule in matches:
+                        st.write(rule["source_instruction"])
+                        st.caption(f"{rule['card_id']} | Rule: {rule.get('rule_id') or 'source guidance'}")
+                        with st.expander("Matched source condition"):
+                            st.write(condition_text(rule["condition"]))
+                unresolved = [entry for entry in reviews if entry["conditional_rules"]]
+                if unresolved:
+                    with st.expander("Conditional source options — information needed before use"):
+                        st.write("These are source options for assessment, not instructions to start treatment.")
+                        for entry in unresolved:
+                            st.write(f"{entry['card_id']} — {entry['title']}")
+                            for rule in entry["conditional_rules"]:
+                                if rule["missing_inputs"]:
+                                    st.write("Check: " + ", ".join(f.replace("_", " ") for f in rule["missing_inputs"]))
+                                if rule["unsupported_rule"]:
+                                    st.write("This source rule/table cannot yet be evaluated; do not assume a matching row.")
+                                if rule["condition"]:
+                                    st.write("Applies if: " + condition_text(rule["condition"]))
+                                if rule["prerequisites"]:
+                                    for gate in rule["prerequisites"]:
+                                        st.write(f"Requires {gate['field'].replace('_', ' ')}: {gate['required_value']}")
+                                if rule["restrictions"]:
+                                    st.write("Source restrictions:")
+                                    for restriction in rule["restrictions"]:
+                                        if isinstance(restriction, dict):
+                                            st.write(restriction.get("interpretation") or restriction.get("action") or
+                                                     condition_text(restriction.get("condition")))
+                                        else:
+                                            st.write(str(restriction))
         with st.expander("Management: source cards"):
             for cid in output.get("evidence_card_ids", []):
                 card = cards.get(cid)

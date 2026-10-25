@@ -780,10 +780,21 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
     derived: dict[str, Any] = {}
     derived_trace: dict[str, Any] = {}
     blocked: dict[str, str] = {}
+    fact_info: dict[str, Any] = {}
+    source_values: dict[str, Any] = {}
+    source_options: list[dict[str, Any]] = []
     if mode == "improved" and diseases:
         from derived_fields import blocked_cards, derive_classifications
+        from management_facts import extract_management_facts
+        from management_evidence import source_context, prerequisite_state, rule_options
+        new_facts, fact_info = extract_management_facts(
+            patient, cards.values(), diseases[0], ctx, llm_generate)
+        ctx = {**ctx, **new_facts}
         derived, derived_trace = derive_classifications(cards.values(), diseases[0], ctx)
         ctx = {**ctx, **derived}
+        ctx, source_values, resolved = source_context(cards.values(), diseases[0], ctx, derived_trace)
+        source_values.update({field: {label: [] for label in entry["labels"]}
+                              for field, entry in derived_trace.get("fields", {}).items()})
         blocked = blocked_cards(derived_trace)
     # Retrieve a broader pool, then use the card's *actual* source-rule
     # applicability to rank candidates. Similarity alone previously exhausted
@@ -799,16 +810,31 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         viable = []
         for hit in hits:
             card = cards.get(hit.get("card_id"))
+            if mode == "improved" and card and card.disease_protocol == diseases[0]:
+                gates = prerequisite_state(card, ctx, source_values)
+                options = rule_options(card, ctx, gates)
+                source_options.extend(options)
+                if any(g["status"] == "not_met" for g in gates):
+                    continue
             if (card is None or card.card_id in blocked
                     or (mode == "improved" and diseases and card.disease_protocol != diseases[0])):
                 continue
             status = card_rule_applicability(card, ctx)
-            if status and status.get("status") == "not_applicable":
+            if mode == "improved":
+                if options and all(o["status"] == "not_applicable" for o in options):
+                    continue
+            elif status and status.get("status") == "not_applicable":
                 continue
             # Keep retrieval ordering among candidates with equal rule support.
             # A proven applicable source rule outranks an unknown indication,
             # but unknown cards remain candidates rather than being discarded.
             rank = 0 if status and status.get("status") == "applicable" else 1
+            if mode == "improved" and rank:
+                from applicability import TruthValue, _evaluate_tree
+                # A matching indication with unresolved safety checks ranks
+                # ahead of unrelated unknown complications; it is not authorised.
+                rank = 1 if any(_evaluate_tree(o["condition"], ctx) is TruthValue.TRUE
+                                for o in options) else 2
             viable.append((rank, hit))
         viable.sort(key=lambda entry: entry[0])
         hits = [hit for _, hit in viable[:count]]
@@ -854,6 +880,10 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         },
     })
     result["management_diagnostics"]["blocked_card_ids"] = sorted(blocked)
+    if mode == "improved":
+        result["management_diagnostics"]["management_fact_extraction"] = fact_info
+        result["management_diagnostics"]["resolved_source_context"] = resolved
+        result["working_diagnosis"] = diseases[0]
     for field_name, entry in derived_trace.get("fields", {}).items():
         if entry.get("status") == "undecided":
             cards_txt = ", ".join(
@@ -875,9 +905,11 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         result["management_diagnostics"]["applicability_by_card"][card.card_id] = (
             applicability.get("status", "unknown") if applicability else "no_structured_rule"
         )
-        if mode == "improved" and applicability and applicability.get("status") == "not_applicable":
-            result["management_diagnostics"]["not_applicable_card_ids"].append(card.card_id)
-            continue
+        if mode == "improved":
+            options = rule_options(card, ctx, prerequisite_state(card, ctx, source_values))
+            if options and all(o["status"] == "not_applicable" for o in options):
+                result["management_diagnostics"]["not_applicable_card_ids"].append(card.card_id)
+                continue
         entry = _prompt_card(card)
         # Retain all source rules and restrictions; one quoted passage per card
         # is sufficient for a short prompt. Original evidence remains in corpus.
@@ -886,11 +918,53 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         if applicability:
             entry["applicability"] = {"status": applicability.get("status"),
                                        "missing_inputs": applicability.get("missing_inputs", [])[:6]}
+        if mode == "improved":
+            options = rule_options(card, ctx, prerequisite_state(card, ctx, source_values))
+            source_options.extend(options)
+            entry["patient_rule_options"] = options
         prepared.append(entry)
     selected = []
-    for entry in prepared:
-        if len(_prompt(patient, selected + [entry]).encode("utf-8")) <= 19000:
-            selected.append(entry)
+    if mode == "improved":
+        from management_evidence import pack_evidence, review_summary
+        facts_for_prompt = {key: value for key, value in ctx.items()
+                            if not key.startswith("_") and key not in {
+                                *QUERY_FIELDS, "clinical_findings", "measurements", "medicines", "allergies"}}
+        def generation_prompt(case, entries):
+            references = {key: [
+                {"card_id": e["card_id"], "pdf_pages": e.get("pdf_page_numbers", [])}
+                for e in entries if e["clinical_category"] == category]
+                for key, category in (("investigations", "Investigation"),
+                                      ("medication", "Medication"), ("advice", "Advice"))}
+            return _prompt(case, entries) + (
+                " IMPROVED MANAGEMENT ONLY. Working diagnosis is probable, not confirmed: "
+                + json.dumps(diseases[0]) + ". Verified or supplied facts and source-derived context: "
+                + json.dumps(facts_for_prompt, default=str) + ". "
+                "Use patient_rule_options at instruction level. Supported rules may inform "
+                "recommendations; do not import an unrelated instruction from the same card. "
+                "AND requires all clauses; OR requires one supported alternative. Missing "
+                "facts are unknown, never negative. Conditional rules are review options, "
+                "not instructions to act now. State their exact missing prerequisites. "
+                "Never supply a patient dose from a table whose row or safety checks are "
+                "unresolved. Do not guess age-group boundaries or treatment setting. "
+                "Give relevant advice as well as investigations and treatment when evidence "
+                "supports it. Do not prescribe unrelated complications merely because their "
+                "cards share the protocol. Set probable_diagnosis to []. Each citation must "
+                "match its section's permitted references and page: "
+                + json.dumps(references))
+        selected, omitted = pack_evidence(prepared, patient, generation_prompt, "")
+        unique_options = {(o["card_id"], o["rule_id"], json.dumps(o["condition"], sort_keys=True)): o
+                          for o in source_options}
+        result["source_review_options"] = review_summary(unique_options.values())
+        result["management_diagnostics"]["source_rule_outcomes"] = [
+            {k: option[k] for k in ("card_id", "rule_id", "status", "missing_inputs", "unsupported_rule")}
+            for option in unique_options.values()]
+        result["management_diagnostics"]["omitted_for_prompt_budget"] = omitted
+        result["management_diagnostics"]["prompt_categories"] = sorted({
+            e["clinical_category"] for e in selected})
+    else:
+        for entry in prepared:
+            if len(_prompt(patient, selected + [entry]).encode("utf-8")) <= 19000:
+                selected.append(entry)
     result["evidence_card_ids"] = [x["card_id"] for x in selected]
     result["management_diagnostics"]["prompt_card_ids"] = result["evidence_card_ids"]
     if not selected:
@@ -930,6 +1004,9 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         + json.dumps(evidence_by_section, ensure_ascii=False)
     )
     allowed = {x["card_id"]: cards[x["card_id"]] for x in selected}
+    if mode == "improved":
+        prompt = generation_prompt(patient, selected)
+        result["management_diagnostics"]["prompt_bytes"] = len(prompt.encode("utf-8"))
     try:
         raw_response = llm_generate(prompt)
         response, errors = _parse_response_partial(raw_response)
@@ -946,6 +1023,22 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         result["management_diagnostics"]["validation_rejections"] = rejected[:20]
         output = _dump(validated)
         _attach_traceability(output, validated, allowed)
+        if mode == "improved":
+            # Keep the established response arrays compatible, but mark review
+            # options explicitly so the UI cannot present them as actions now.
+            conditional_ids = {o["card_id"] for o in source_options
+                               if o["status"] != "supported"}
+            for section in ("investigations", "medication", "advice"):
+                for item in output.get(section, []):
+                    refs = {r["card_id"] for r in item.get("evidence", [])}
+                    conditional = bool(refs & conditional_ids) or (
+                        section in {"medication", "advice"}
+                        and item.get("text", "").startswith("CONDITIONAL GUIDELINE"))
+                    item["review_required"] = conditional
+                    if conditional and section == "medication":
+                        for field in ("dose", "route", "frequency", "duration", "instructions", "source_details"):
+                            item[field] = None
+                        item["eligibility"] = "conditional"
         own_missing = list(result["missing_info"])
         result.update(output)
         result["missing_info"] = own_missing + [
