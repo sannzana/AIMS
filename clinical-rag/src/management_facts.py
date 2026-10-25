@@ -34,6 +34,12 @@ def needed_fields(cards: Any, disease: str, known: dict[str, Any]) -> list[str]:
     management = {c.card_id: c for c in cards if c.disease_protocol == disease
                   and c.clinical_category in {"Investigation", "Medication", "Advice"}}
     names: set[str] = rule_fields(management)
+    from management_safety import prerequisite_policies
+    for card in management.values():
+        for policy in prerequisite_policies(card):
+            for condition in _conditions(policy["exception"].get("condition")):
+                if isinstance(condition.get("field"), str):
+                    names.add(condition["field"])
     for card in management.values():
         for cond in _conditions(card.model_dump().get("if_else_conditions_and_corresponding_actions")):
             if isinstance(cond.get("field"), str):

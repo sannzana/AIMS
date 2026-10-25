@@ -104,26 +104,26 @@ def rule_options(card, context, gates=()):
              if isinstance(r, dict)]
     rules += [(r, "if", "then") for r in raw.get("if_else_conditions_and_corresponding_actions") or []
               if isinstance(r, dict)]
-    exceptions = raw.get("exceptions_contraindications") or []
-    states = [_evaluate_tree(r.get("condition"), context) if isinstance(r, dict)
-              else TruthValue.UNKNOWN for r in exceptions]
-    exception_fields = [f for r in exceptions if isinstance(r, dict)
-                        for f in _rule_fields(r.get("condition"))]
+    from management_safety import instruction_safety
     options = []
     if not rules:
         rules = [({"result": raw.get("recommended_action")}, "condition", "result")]
     for rule, condition_key, action_key in rules:
         tree = rule.get(condition_key)
         status = _evaluate_tree(tree, context)
-        fields = list(dict.fromkeys(_rule_fields(tree) + exception_fields))
+        safety = instruction_safety(card, rule.get("rule_id"), context)
+        fields = list(dict.fromkeys(_rule_fields(tree)))
         missing = [f for f in fields if _get_value(context, f)[1] is False
                    or _get_value(context, f)[0] is None]
-        if TruthValue.TRUE in states or any(g["status"] == "not_met" for g in gates):
+        restricted = safety["restricted"] and status is not TruthValue.FALSE
+        if any(g["status"] == "not_met" for g in gates):
             status = TruthValue.FALSE
-        elif TruthValue.UNKNOWN in states or any(g["status"] == "unknown" for g in gates):
+            restricted = False
+        elif safety["pending"] or any(g["status"] == "unknown" for g in gates):
             if status is not TruthValue.FALSE:
                 status = TruthValue.UNKNOWN
         missing += [g["field"] for g in gates if g["status"] == "unknown"]
+        missing += safety["missing"]
         result = rule.get(action_key)
         if isinstance(result, dict):
             result = result.get("result") or result.get("action")
@@ -142,11 +142,11 @@ def rule_options(card, context, gates=()):
         options.append({
             "card_id": card.card_id, "title": card.card_title,
             "category": card.clinical_category, "rule_id": rule.get("rule_id"),
-            "status": {TruthValue.TRUE: "supported", TruthValue.FALSE: "not_applicable",
-                       TruthValue.UNKNOWN: "conditional"}[status],
+            "status": "restricted" if restricted and status is not TruthValue.FALSE else {
+                TruthValue.TRUE: "supported", TruthValue.FALSE: "not_applicable", TruthValue.UNKNOWN: "conditional"}[status],
             "source_instruction": result if isinstance(result, str) else None,
             "age_clause_selection": selection if selection and selection["status"] != "no_age_clause" else None,
-            "condition": tree, "restrictions": exceptions,
+            "condition": tree, "restrictions": safety["restrictions"], "safety_notes": safety["notes"],
             "missing_inputs": sorted(set(missing)), "prerequisites": list(gates),
             "matched_fields": [f for f in _rule_fields(tree)
                                if _get_value(context, f)[1]],
@@ -173,7 +173,7 @@ def pack_evidence(prepared, patient, prompt_builder, context_text, limit=19000):
         compact = {k: entry[k] for k in keys if k in entry and k != "patient_rule_options"}
         compact["patient_rule_options"] = [
             {k: option[k] for k in ("rule_id", "status", "source_instruction", "age_clause_selection", "condition",
-                                    "missing_inputs", "prerequisites", "unsupported_rule")}
+                                    "missing_inputs", "prerequisites", "unsupported_rule", "safety_notes")}
             for option in entry.get("patient_rule_options", [])]
         return compact
     # Compact every candidate consistently rather than silently deleting advice.
@@ -209,7 +209,7 @@ def review_summary(options):
             "card_id": first["card_id"], "title": first["title"],
             "category": first["category"], "evidence": first["evidence"],
             "supported_rules": [r for r in entries if r["status"] == "supported"],
-            "conditional_rules": [r for r in entries if r["status"] == "conditional"],
+            "conditional_rules": [r for r in entries if r["status"] in {"conditional", "restricted"}],
             "missing_inputs": sorted({f for r in entries for f in r["missing_inputs"]}),
         })
     return result

@@ -789,6 +789,7 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         from derived_fields import blocked_cards, derive_classifications
         from management_facts import extract_management_facts
         from management_evidence import source_context, prerequisite_state, rule_options
+        from management_safety import applicability_from_options, safety_notices, validation_views
         new_facts, fact_info = extract_management_facts(
             patient, cards.values(), diseases[0], ctx, llm_generate)
         ctx = {**ctx, **new_facts}
@@ -823,6 +824,7 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
                 continue
             status = card_rule_applicability(card, ctx)
             if mode == "improved":
+                status = applicability_from_options(options)
                 if options and all(o["status"] == "not_applicable" for o in options):
                     continue
             elif status and status.get("status") == "not_applicable":
@@ -883,6 +885,8 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
     })
     result["management_diagnostics"]["blocked_card_ids"] = sorted(blocked)
     if mode == "improved":
+        result["safety_notices"] = safety_notices(cards.values(), diseases[0], ctx,
+                                                   patient.get("medicines"), {card.card_id for card in chosen})
         result["management_diagnostics"]["age_normalization"] = age_info
         if age_info.get("message"):
             result["missing_info"].append(age_info["message"])
@@ -907,6 +911,8 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
     prepared = []
     for card in chosen:
         applicability = card_rule_applicability(card, ctx)
+        if mode == "improved":
+            applicability = applicability_from_options(rule_options(card, ctx, prerequisite_state(card, ctx, source_values)))
         result["management_diagnostics"]["applicability_by_card"][card.card_id] = (
             applicability.get("status", "unknown") if applicability else "no_structured_rule"
         )
@@ -1020,12 +1026,18 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         response, errors = _parse_response_partial(raw_response)
         result["management_diagnostics"]["schema_rejections"] = errors[:20]
         response.probable_diagnosis = []
+        validation_cards, validation_context = allowed, ctx
+        if mode == "improved":
+            validation_cards, validation_context = validation_views(allowed, source_options, ctx)
+            if any(card_rule_applicability(card, validation_context)["status"] == "not_applicable"
+                   for card in validation_cards.values()) and not response.missing_info:
+                response.missing_info.append("Source restrictions may exclude proposed instructions; see safety notes.")
         validated, rejected = _validate_output(
-            response, allowed, source_medication=(mode == "improved"),
-            patient_context=ctx)
+            response, validation_cards, source_medication=(mode == "improved"),
+            patient_context=validation_context)
         if mode == "improved":
             validated, boundary_rejections = _enforce_management_evidence_boundary(
-                validated, allowed, diseases[0], patient_context=ctx
+                validated, validation_cards, diseases[0], patient_context=validation_context
             )
             rejected.extend(boundary_rejections)
         result["management_diagnostics"]["validation_rejections"] = rejected[:20]

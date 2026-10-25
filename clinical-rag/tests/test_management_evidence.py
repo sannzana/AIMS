@@ -34,10 +34,13 @@ def test_and_does_not_turn_partial_evidence_into_permission_and_or_can_match():
         assert option["missing_inputs"] == ["marker_two"]
 
 
-def test_known_contraindication_does_not_authorise_medication():
+def test_known_contraindication_only_restricts_affected_medication():
     options = rule_options(CARDS["CHI-014"], {
         "patient_has_fever": True, "preexisting_liver_disease": True})
-    assert all(o["status"] == "not_applicable" for o in options)
+    by_id = {o["rule_id"]: o for o in options}
+    assert by_id["CHI-MED-001"]["status"] == "restricted"
+    assert by_id["CHI-MED-002"]["status"] == "conditional"
+    assert "preexisting_liver_disease" not in by_id["CHI-MED-002"]["missing_inputs"]
 
 
 def test_unreadable_table_is_explicit_and_never_supported():

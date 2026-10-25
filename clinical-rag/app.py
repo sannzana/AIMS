@@ -427,6 +427,30 @@ def main() -> None:
                 unit = age_info["unit"]
                 value = age_info["age_months" if unit == "months" else "age_years"]
                 st.caption(f"Age interpreted for management: {value:g} {unit}.")
+            notices = output.get("safety_notices", [])
+            immediate = [notice for notice in notices if notice["status"] == "restriction_applies"
+                         or notice["medicine_mentioned"]]
+            if immediate:
+                st.markdown("### Source medication safety checks")
+                for notice in immediate:
+                    label = ("Restriction applies to the scoped source instruction" if notice["status"] == "restriction_applies"
+                             else "Source condition not triggered; overall suitability is not established" if notice["status"] == "not_triggered"
+                             else "Safety review required")
+                    st.warning(label + ": " + notice["text"])
+                    if notice.get("source_population"):
+                        st.caption("Source population: " + str(notice["source_population"]) + "; membership is not assumed for this patient.")
+                    if notice["medicine_mentioned"]:
+                        st.caption("A source medication term was mentioned in the input; this is not proof of current use or a drug-interaction check.")
+                    st.caption(f"Source: {notice['card_id']} — PDF pages {notice['pdf_pages']}")
+            other_notes = [notice for notice in notices if notice not in immediate]
+            if other_notes:
+                with st.expander("Source safety and interpretation notes"):
+                    for notice in other_notes:
+                        st.write(notice["text"])
+                        if notice.get("source_population"):
+                            st.caption("Source population: " + str(notice["source_population"]) + "; membership is not assumed for this patient.")
+                        if notice["status"] == "scope_pending":
+                            st.caption("Restriction scope needs review; it has not been ignored or treated as permission.")
         for section, key in (("Investigations", "investigations"), ("Treatment", "medication"), ("Advice", "advice")):
             st.markdown(f"### {section}")
             items = output.get(key, [])
@@ -482,6 +506,8 @@ def main() -> None:
                                 st.write("Information needed: " + ", ".join(f.replace("_", " ") for f in entry["missing_inputs"]))
                             shown_restrictions = set()
                             for rule in entry["conditional_rules"]:
+                                if rule["status"] == "restricted":
+                                    st.write("A source restriction applies; this instruction is not approved for the supplied facts.")
                                 age_selection = rule.get("age_clause_selection")
                                 if age_selection and age_selection["status"] != "matched":
                                     st.write("Age-specific instruction requires review: " + age_selection["status"].replace("_", " "))
