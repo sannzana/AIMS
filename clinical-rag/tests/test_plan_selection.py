@@ -228,6 +228,57 @@ def test_source_facts_reach_severe_classification_from_synonym_and_measurements(
     assert trace["fields"]["dehydration_classification"]["status"] == "decided"
 
 
+def test_cholera_case_definition_reports_missing_outbreak_status():
+    patient = {
+        "symptoms": (
+            "sudden profuse watery rice-water diarrhoea, repeated vomiting, "
+            "intense thirst, weakness, leg cramps"
+        ),
+        "clinical_findings": (
+            "sunken eyes, dry mouth, reduced urine output, weak rapid pulse"
+        ),
+        "age": 34,
+        "measurements": "BP 90/60 mmHg, pulse 118 bpm, temperature 37 C",
+    }
+
+    def model(prompt):
+        if "separate semantic fact verification pass" in prompt:
+            return json.dumps({
+                "decisions": {"acute_watery_diarrhoea": "confirmed"}
+            })
+        return json.dumps({
+            "candidates": [{
+                "card_id": "CHO-001",
+                "decision": "uncertain",
+                "patient_quotes": ["watery rice-water diarrhoea"],
+                "missing": ["cholera_outbreak_declared"],
+            }],
+            "facts": {
+                "acute_watery_diarrhoea": {
+                    "value": True,
+                    "quote": "watery rice-water diarrhoea",
+                },
+            },
+        })
+
+    ranking = triage(
+        patient,
+        CARDS,
+        llm_generate=model,
+        candidate_search=lambda _patient, _cards: ["CHO-001"],
+    )
+
+    diagnostic = ranking["diagnostics"]["candidate_diagnostics"][0]
+    assert ranking["features"]["acute_watery_diarrhoea"] is True
+    assert ranking["candidates"][0]["decision"] == "uncertain"
+    assert any(
+        "cholera_outbreak_declared" in rule["fields"]
+        and rule["status"] == "unknown"
+        for rule in diagnostic["source_criteria"]
+    )
+    assert "acute_watery_diarrhoea" in diagnostic["verified_facts"]
+
+
 def test_overlapping_chikungunya_dengue_candidates_keep_supported_and_uncertain_status():
     patient = {
         "symptoms": "high fever, severe joint pain, headache, rash",

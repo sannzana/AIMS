@@ -13,6 +13,7 @@ from typing import Any, Callable
 from card_roles import assign_role
 from llm import generate, LLMError
 from fact_verification import rule_fields, verify_facts, verify_boolean_facts, verify_measurement_facts
+from applicability import TruthValue, _evaluate_tree
 
 
 def _raw(card: Any) -> dict[str, Any]:
@@ -32,6 +33,28 @@ def _fields(node: Any) -> set[str]:
     if isinstance(node, list):
         return set().union(*(_fields(v) for v in node))
     return set()
+
+
+def _source_criteria_diagnostics(card: Any, context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Summarize source rule outcomes without exposing patient narrative text."""
+    raw = _raw(card)
+    results = []
+    for rule in raw.get("conditions_decision_logic") or []:
+        if not isinstance(rule, dict) or "condition" not in rule:
+            continue
+        condition = rule["condition"]
+        value = _evaluate_tree(condition, context)
+        results.append({
+            "rule_id": rule.get("rule_id"),
+            "action": rule.get("action"),
+            "status": {
+                TruthValue.TRUE: "satisfied",
+                TruthValue.FALSE: "contradicted",
+                TruthValue.UNKNOWN: "unknown",
+            }[value],
+            "fields": sorted(_fields(condition)),
+        })
+    return results
 
 
 def _json_object(value: str) -> dict[str, Any]:
@@ -210,6 +233,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
         "accepted_supported_card_ids": [],
         "accepted_uncertain_card_ids": [],
     }
+    candidate_diagnostics = []
     diagnostic_rejections = {"unknown_card": 0, "invalid_quotes": 0, "unusable_decision": 0}
     for entry in response.get("candidates", []):
         decision = entry.get("decision") if isinstance(entry, dict) else None
@@ -327,6 +351,16 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
             })
         decision = entry.get("decision")
         card = allowed[entry["card_id"]]
+        candidate_diagnostics.append({
+            "card_id": card.card_id,
+            "disease": card.disease_protocol,
+            "decision": decision,
+            "source_criteria": _source_criteria_diagnostics(
+                card, {**patient, **facts}
+            ),
+            "verified_facts": sorted(facts),
+            "rejected_facts": sorted(rejected_facts),
+        })
         item = {"disease": card.disease_protocol, "card_id": card.card_id,
                 "matched_features": quotes, "missing": entry.get("missing", []),
                 "decision": decision}
@@ -364,6 +398,7 @@ def triage(patient: dict[str, Any], cards: dict[str, Any],
                    "llm_batches": len(batches), "successful_llm_batches": len(responses),
                    "failed_llm_batches": len(failures),
                    "model_candidate_count": len(response.get("candidates", [])),
+                   "candidate_diagnostics": candidate_diagnostics,
                    "rejections": diagnostic_rejections,
                    "decision_trace": decision_trace,
                    "verified_fact_count": len(facts),

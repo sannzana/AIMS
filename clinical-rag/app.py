@@ -91,7 +91,10 @@ def recommendation_for_patient(
 def management_disease_choices(diagnosis: dict[str, Any], cards: dict[str, Card]) -> list[str]:
     """Use validated diagnosis evidence, never unrelated retrieval candidates."""
     choices: list[str] = []
-    for item in diagnosis.get("probable_diagnosis", []):
+    for item in (
+        diagnosis.get("probable_diagnosis", [])
+        + diagnosis.get("uncertain_differentials", [])
+    ):
         protocols = {
             cards[ref["card_id"]].disease_protocol
             for ref in item.get("evidence", [])
@@ -146,7 +149,9 @@ def diagnosis_from_triage(ranking: dict[str, Any], cards: dict[str, Card]) -> di
         "uncertain_differentials": uncertain,
         "missing_info": [str(x) for c in ranking.get("candidates", [])
                          for x in (c.get("missing") or []) if isinstance(x, str)][:8],
-        "evidence_card_ids": [x["evidence"][0]["card_id"] for x in items],
+        "evidence_card_ids": [
+            x["evidence"][0]["card_id"] for x in items + uncertain
+        ],
         "stage": "Diagnosis",
         "notice": None if items or uncertain else ranking.get("notice", "No verified source-backed candidate."),
     }
@@ -360,6 +365,8 @@ def main() -> None:
                 st.json(st.session_state.get("diagnosis_ranking", {}).get("diagnostics", {}))
         for item in output.get("probable_diagnosis", []):
             _render_recommendation_item(st, item)
+        for item in output.get("uncertain_differentials", []):
+            _render_recommendation_item(st, item)
         if output.get("evidence_card_ids"):
             with st.expander("Diagnosis: source cards"):
                 for cid in output["evidence_card_ids"]:
@@ -376,7 +383,7 @@ def main() -> None:
                     key="working_disease",
                 )
             else:
-                st.warning("No diagnosis with single-protocol evidence. Management is blocked pending review.")
+                st.warning("No source-backed candidate is available for clinician selection.")
             can_generate = bool(st.session_state.get("working_disease") in candidates)
         else:
             can_generate = True
@@ -390,7 +397,7 @@ def main() -> None:
             if st.session_state.get("case_mode") == "improved":
                 chosen = st.session_state.get("working_disease")
                 if chosen not in (diseases or []):
-                    st.error("Choose a supported working diagnosis before management.")
+                    st.error("Choose a source-backed working diagnosis before management.")
                     return
                 diseases = [chosen]
             with st.spinner("Generating evidence-grounded management plan..."):
