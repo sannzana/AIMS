@@ -309,6 +309,10 @@ def main() -> None:
     if "case_patient" not in st.session_state:
         return
     patient = st.session_state["case_patient"]
+    if st.session_state.get("case_mode") == "improved":
+        from improved_input import normalize_improved_inputs
+        patient = normalize_improved_inputs(patient)
+        st.session_state["case_patient"] = patient
     st.subheader("Patient information")
     st.json(patient)
 
