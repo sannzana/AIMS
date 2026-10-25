@@ -35,6 +35,9 @@ class MedicationRecommendation(RecommendationItem):
     frequency: str | None = None
     duration: str | None = None
     instructions: str | None = None
+    eligibility: str | None = None
+    eligibility_notes: list[str] = Field(default_factory=list)
+    source_details: str | None = None
 
 
 class RecommendationResponse(BaseModel):
@@ -214,7 +217,8 @@ def _medication_field_supported(card: Card, field: str, value: Any) -> bool:
 
 
 def _validate_output(
-    response: RecommendationResponse, cards: dict[str, Card]
+    response: RecommendationResponse, cards: dict[str, Card], *,
+    patient_context: dict[str, Any] | None = None, source_medication: bool = False,
 ) -> tuple[RecommendationResponse, list[str]]:
     items = (
         response.probable_diagnosis
@@ -250,7 +254,12 @@ def _validate_output(
                             f"for card {reference.card_id}"
                         )
                         break
-            if reason is None and isinstance(item, MedicationRecommendation):
+            if reason is None and source_medication and isinstance(item, MedicationRecommendation):
+                from medication_source import finalize_medication_item
+                finalized, reason = finalize_medication_item(item, cards, patient_context)
+                if finalized is not None:
+                    item = finalized
+            elif reason is None and isinstance(item, MedicationRecommendation):
                 supplied = {
                     name: getattr(item, name)
                     for name in (
@@ -497,7 +506,9 @@ def recommend(
             "LLM JSON did not match the recommendation schema; "
             "validation errors: " + "; ".join(schema_rejections)
         )
-    response, safety_rejections = _validate_output(response, cards)
+    response, safety_rejections = _validate_output(
+        response, cards, source_medication=(mode == "improved"),
+        patient_context=_structured_patient_context(patient))
     output = _dump(response)
     output["mode"] = mode
     output["dev_only"] = persist_dir.name == "dev_index"
@@ -616,7 +627,9 @@ def recommend_section(patient: dict[str, Any], stage: str, *, mode: str = "impro
             for other_key in STAGE_TO_KEY.values():
                 if other_key != key:
                     setattr(response, other_key, [])
-            response, rejected = _validate_output(response, group_cards)
+            response, rejected = _validate_output(
+                response, group_cards, source_medication=(mode == "improved"),
+                patient_context=_structured_patient_context(patient))
             if mode == "improved" and stage == "Diagnosis":
                 # A diagnosis must cite a single eligible disease protocol.
                 retained = []
@@ -704,9 +717,20 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         }
     chosen = []
     retrieval_trace: dict[str, list[str]] = {}
+    ctx = _structured_patient_context(patient)
+    derived: dict[str, Any] = {}
+    derived_trace: dict[str, Any] = {}
+    blocked: dict[str, str] = {}
+    if mode == "improved" and diseases:
+        from derived_fields import blocked_cards, derive_classifications
+        derived, derived_trace = derive_classifications(cards.values(), diseases[0], ctx)
+        ctx = {**ctx, **derived}
+        blocked = blocked_cards(derived_trace)
     for category, count in (("Investigation", 2), ("Medication", 2), ("Advice", 2)):
+        spare = sum(1 for cid in blocked if cards[cid].clinical_category == category) if blocked else 0
         hits = retrieve_category(patient, category, diseases=diseases,
-                                 top_k=count, persist_dir=persist_dir, cards=cards)
+                                 top_k=count + spare, persist_dir=persist_dir, cards=cards)
+        hits = [h for h in hits if h.get("card_id") not in blocked][:count]
         retrieval_trace[category] = [
             str(hit.get("card_id")) for hit in hits if hit.get("card_id")
         ]
@@ -716,6 +740,22 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
             and (mode != "improved" or cards[hit["card_id"]].disease_protocol == diseases[0])
         )
     chosen = list({card.card_id: card for card in chosen}.values())
+    extra_ids: list[str] = []
+    for field_name, entry in derived_trace.get("fields", {}).items():
+        if entry.get("status") not in ("decided", "supplied"):
+            continue
+        # A settled classification selects its cards by rule, not by similarity.
+        from derived_fields import consuming_fields, classification_rules
+        rules = classification_rules(cards.values(), diseases[0])
+        group = consuming_fields(cards.values(), diseases[0], {l for _, l, _ in rules})
+        for card_id in sorted(group.get(field_name, ())):
+            card = cards.get(card_id)
+            verdict = card_rule_applicability(card, ctx) if card else None
+            if (card and card_id not in {c.card_id for c in chosen}
+                    and verdict and verdict.get("status") == "applicable"
+                    and len(extra_ids) < 3):
+                chosen.append(card)
+                extra_ids.append(card_id)
     result = {key: [] for key in STAGE_TO_KEY.values()}
     result.update({
         "missing_info": [], "evidence_card_ids": [], "stage": "Management",
@@ -728,10 +768,27 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
             "schema_rejections": [],
             "validation_rejections": [],
             "generated_item_counts": {},
+            "derived_classification": {"fields": derived, **derived_trace},
+            "added_by_rule": extra_ids,
         },
     })
+    result["management_diagnostics"]["blocked_card_ids"] = sorted(blocked)
+    for field_name, entry in derived_trace.get("fields", {}).items():
+        if entry.get("status") == "undecided":
+            cards_txt = ", ".join(
+                f"{cid} ({cards[cid].card_title})" for cid in entry["blocked_cards"])
+            needed: list[str] = []
+            for label in entry.get("unknown_labels", []):
+                assess = cards.get(derived_trace["labels"][label]["card_id"])
+                verdict = card_rule_applicability(assess, ctx) if assess else None
+                needed += [m for m in (verdict or {}).get("missing_inputs", []) if m not in needed]
+            result["missing_info"].append(
+                f"Not shown until '{field_name}' is settled by the source rules: {cards_txt}. "
+                + ("Needed: " + ", ".join(needed[:10]) + "." if needed else ""))
+    for conflict in derived_trace.get("conflicts", []):
+        result["missing_info"].append("Source rules conflict - " + conflict
+                                      + "; no plan chosen, clinical review needed.")
     prepared = []
-    ctx = _structured_patient_context(patient)
     for card in chosen:
         applicability = card_rule_applicability(card, ctx)
         result["management_diagnostics"]["applicability_by_card"][card.card_id] = (
@@ -797,7 +854,9 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         response, errors = _parse_response_partial(raw_response)
         result["management_diagnostics"]["schema_rejections"] = errors[:20]
         response.probable_diagnosis = []
-        validated, rejected = _validate_output(response, allowed)
+        validated, rejected = _validate_output(
+            response, allowed, source_medication=(mode == "improved"),
+            patient_context=ctx)
         if mode == "improved":
             validated, boundary_rejections = _enforce_management_evidence_boundary(
                 validated, allowed, diseases[0]
@@ -806,7 +865,10 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         result["management_diagnostics"]["validation_rejections"] = rejected[:20]
         output = _dump(validated)
         _attach_traceability(output, validated, allowed)
+        own_missing = list(result["missing_info"])
         result.update(output)
+        result["missing_info"] = own_missing + [
+            m for m in result.get("missing_info", []) if m not in own_missing]
         result["management_diagnostics"]["generated_item_counts"] = {
             "investigations": len(result.get("investigations", [])),
             "medication": len(result.get("medication", [])),
