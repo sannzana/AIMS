@@ -15,6 +15,7 @@ threshold is named here - the fields come from the cards.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable
 
 from derived_fields import _conditions, classification_rules, field_groups
@@ -73,7 +74,8 @@ def extract_management_facts(
     known: dict[str, Any], llm_generate: Callable[[str], str],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return (verified_facts, diagnostics). Never raises; failure means unknown."""
-    fields = needed_fields(list(cards), disease, known)
+    cards = list(cards)
+    fields = needed_fields(cards, disease, known)
     info: dict[str, Any] = {"requested_fields": fields, "accepted": [], "rejected": {}}
     if not fields:
         return {}, info
@@ -86,6 +88,28 @@ def extract_management_facts(
         info["error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
         return {}, info
     allowed = set(fields)
+    # A second model agreeing is not permission to invent a count or a derived
+    # classification. Require explicit wording for these source-schema claims.
+    labels = [set(label.split("_")) for _, label, _ in classification_rules(cards, disease)]
+    source_rejected = {}
+    filtered = {}
+    for name, entry in proposals.items():
+        quote = entry.get("quote", "") if isinstance(entry, dict) else ""
+        value = entry.get("value") if isinstance(entry, dict) else None
+        words = name.split("_")
+        if words[-1:] == ["count"]:
+            noun = words[-2].rstrip("s") if len(words) > 1 else "count"
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not isinstance(quote, str)
+                    or not re.search(r"\b(?:count|" + re.escape(noun) + r"s?)\b", quote, re.I)):
+                source_rejected[name] = "Count must be explicitly reported with its quantity, not computed from symptoms"
+                continue
+        if len(words) >= 2 and any(set(words) <= label for label in labels):
+            if not isinstance(quote, str) or not re.search(r"\b" + r"[\s_-]+".join(map(re.escape, words)) + r"\b", quote, re.I):
+                source_rejected[name] = "Classification must be explicitly reported or derived by source rules"
+                continue
+        filtered[name] = entry
+    proposals = filtered
     try:
         facts, rejected = verify_facts(proposals, patient, allowed)
         booleans, bool_rejected = verify_boolean_facts(proposals, patient, allowed, llm_generate)
@@ -104,6 +128,7 @@ def extract_management_facts(
     facts.update(numbers)
     rejected.update(bool_rejected)
     rejected.update(num_rejected)
+    rejected.update(source_rejected)
     facts = {k: v for k, v in facts.items() if k in allowed}
     info["accepted"] = sorted(facts)
     info["rejected"] = {k: v for k, v in rejected.items() if k not in facts}
