@@ -458,8 +458,16 @@ def main() -> None:
                         st.write("• " + rule["source_instruction"])
                         pages = ", ".join(str(ref["pdf_page"]) for ref in rule["evidence"])
                         st.caption(f"Source: {rule['card_id']} — PDF page {pages}")
+                        if rule.get("age_clause_selection"):
+                            st.caption("Age-matched source clause; other source prerequisites still require verification.")
                         with st.expander("Matched source condition"):
                             st.write(condition_text(rule["condition"]))
+                            age_selection = rule.get("age_clause_selection")
+                            if age_selection:
+                                st.write("Only the matching age clause is shown. Age matching alone does not verify other source prerequisites.")
+                                card = cards.get(rule["card_id"])
+                                if card and card.model_dump().get("relevant_symptoms_or_prerequisites"):
+                                    st.write("Other source prerequisites: " + str(card.model_dump()["relevant_symptoms_or_prerequisites"]))
                 unresolved = [entry for entry in reviews if entry["conditional_rules"]]
                 if not items and not matches:
                     st.info("More information is needed; review the conditional options below."
@@ -474,6 +482,11 @@ def main() -> None:
                                 st.write("Information needed: " + ", ".join(f.replace("_", " ") for f in entry["missing_inputs"]))
                             shown_restrictions = set()
                             for rule in entry["conditional_rules"]:
+                                age_selection = rule.get("age_clause_selection")
+                                if age_selection and age_selection["status"] != "matched":
+                                    st.write("Age-specific instruction requires review: " + age_selection["status"].replace("_", " "))
+                                    if rule.get("source_instruction"):
+                                        st.write("Unselected source alternatives (not patient-specific instructions): " + rule["source_instruction"])
                                 if rule["unsupported_rule"]:
                                     st.write("This source rule/table cannot yet be evaluated; do not assume a matching row.")
                                 if rule["condition"]:

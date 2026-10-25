@@ -127,6 +127,17 @@ def rule_options(card, context, gates=()):
         result = rule.get(action_key)
         if isinstance(result, dict):
             result = result.get("result") or result.get("action")
+        selection = None
+        if isinstance(result, str):
+            from management_clauses import patient_age_months, select_age_clauses
+            selection = select_age_clauses(result, patient_age_months(context))
+            if selection["status"] == "excluded":
+                status, result = TruthValue.FALSE, None
+            elif selection["status"] == "matched":
+                result = selection["text"]
+            elif selection["status"] != "no_age_clause" and status is not TruthValue.FALSE:
+                status = TruthValue.UNKNOWN
+                missing.append("age_months" if selection["status"] == "age_unknown" else "source_age_clause_review")
         unsupported = tree is not None and not _rule_fields(tree)
         options.append({
             "card_id": card.card_id, "title": card.card_title,
@@ -134,6 +145,7 @@ def rule_options(card, context, gates=()):
             "status": {TruthValue.TRUE: "supported", TruthValue.FALSE: "not_applicable",
                        TruthValue.UNKNOWN: "conditional"}[status],
             "source_instruction": result if isinstance(result, str) else None,
+            "age_clause_selection": selection if selection and selection["status"] != "no_age_clause" else None,
             "condition": tree, "restrictions": exceptions,
             "missing_inputs": sorted(set(missing)), "prerequisites": list(gates),
             "matched_fields": [f for f in _rule_fields(tree)
@@ -160,7 +172,7 @@ def pack_evidence(prepared, patient, prompt_builder, context_text, limit=19000):
                 "exceptions_contraindications", "applicability", "patient_rule_options")
         compact = {k: entry[k] for k in keys if k in entry and k != "patient_rule_options"}
         compact["patient_rule_options"] = [
-            {k: option[k] for k in ("rule_id", "status", "source_instruction", "condition",
+            {k: option[k] for k in ("rule_id", "status", "source_instruction", "age_clause_selection", "condition",
                                     "missing_inputs", "prerequisites", "unsupported_rule")}
             for option in entry.get("patient_rule_options", [])]
         return compact
