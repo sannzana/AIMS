@@ -175,10 +175,10 @@ def test_adult_ui_does_not_show_child_age_clause(monkeypatch):
         at.session_state[key] = value
     at.run()
     assert not at.exception
-    text = "\n".join(item.value for item in at.markdown)
+    text = "\n".join(item.value for item in list(at.markdown) + list(at.caption))
     assert "2–9 years" not in text
     assert "10 years and older" in text
-    assert any("Age-matched source clause" in caption.value for caption in at.caption)
+    assert any("Matched source age band:" in caption.value for caption in at.caption)
 
 
 def test_known_contradiction_does_not_leak_a_generated_regimen(monkeypatch):

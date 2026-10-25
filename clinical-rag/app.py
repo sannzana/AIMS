@@ -454,6 +454,11 @@ def main() -> None:
             with st.expander("Management pipeline diagnostics (no patient text)"):
                 st.json(output["management_diagnostics"])
         if st.session_state.get("case_mode") == "improved":
+            pathway = output.get("management_diagnostics", {}).get("resolved_source_context", {}).get("treatment_plan")
+            if isinstance(pathway, str) and pathway:
+                st.info("Source-selected management pathway: " + pathway)
+                from management_display import render_plan_reference
+                render_plan_reference(st, output, cards, pathway)
             age_info = output.get("management_diagnostics", {}).get("age_normalization", {})
             if age_info.get("status") == "normalized":
                 unit = age_info["unit"]
@@ -506,28 +511,8 @@ def main() -> None:
                            if rule.get("source_instruction")]
                 if matches:
                     st.write("Matching source guidance — clinician review required:")
-                    shown = set()
-                    for rule in matches:
-                        if rule["source_instruction"] in shown:
-                            continue
-                        shown.add(rule["source_instruction"])
-                        identity = (rule["card_id"], rule.get("rule_id"), rule["source_instruction"])
-                        if identity in guidance_updates["added"]:
-                            st.success("NEW AFTER YOUR ANSWERS — source match; clinician review required\n\n" + rule["source_instruction"])
-                        else:
-                            st.write("• " + rule["source_instruction"])
-                        pages = ", ".join(str(ref["pdf_page"]) for ref in rule["evidence"])
-                        st.caption(f"Source: {rule['card_id']} — PDF page {pages}")
-                        if rule.get("age_clause_selection"):
-                            st.caption("Age-matched source clause; other source prerequisites still require verification.")
-                        with st.expander("Matched source condition"):
-                            st.write(condition_text(rule["condition"]))
-                            age_selection = rule.get("age_clause_selection")
-                            if age_selection:
-                                st.write("Only the matching age clause is shown. Age matching alone does not verify other source prerequisites.")
-                                card = cards.get(rule["card_id"])
-                                if card and card.model_dump().get("relevant_symptoms_or_prerequisites"):
-                                    st.write("Other source prerequisites: " + str(card.model_dump()["relevant_symptoms_or_prerequisites"]))
+                    from management_display import render_instruction_groups
+                    render_instruction_groups(st, matches, cards, guidance_updates["added"])
                 from management_presentation import split_conditional_sources
                 unresolved, additional = split_conditional_sources(reviews, output.get("management_diagnostics", {}))
                 if not items and not matches:
@@ -569,13 +554,13 @@ def main() -> None:
                                             shown_restrictions.add(text)
                 if additional:
                     with st.expander("Additional source material — applicability not established"):
-                        st.write("These are not selected treatment recommendations. Their source conditions still need assessment.")
+                        st.write("Other source references, not selected treatment recommendations. Open an entry to review its unresolved conditions.")
                         for entry in additional:
-                            st.write(f"{entry['title']} — {entry['card_id']}")
-                            if entry.get("missing_inputs"):
-                                st.caption("Not established: " + ", ".join(field.replace("_", " ") for field in entry["missing_inputs"]))
-                            if any(rule.get("unsupported_rule") for rule in entry["conditional_rules"]):
-                                st.caption("Source table/rule requires manual review; no row or dose is assumed.")
+                            with st.expander(f"{entry['title']} — {entry['card_id']}"):
+                                if entry.get("missing_inputs"):
+                                    st.caption("Not established: " + ", ".join(field.replace("_", " ") for field in entry["missing_inputs"]))
+                                if any(rule.get("unsupported_rule") for rule in entry["conditional_rules"]):
+                                    st.caption("Not automatically evaluated: this source table/rule requires manual review. Additional answers alone do not enable automatic row selection; no row or dose is assumed.")
         with st.expander("Management: source cards"):
             for cid in output.get("evidence_card_ids", []):
                 card = cards.get(cid)
