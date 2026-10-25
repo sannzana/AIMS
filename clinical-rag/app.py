@@ -417,6 +417,12 @@ def main() -> None:
         if output.get("management_diagnostics"):
             with st.expander("Management pipeline diagnostics (no patient text)"):
                 st.json(output["management_diagnostics"])
+        if st.session_state.get("case_mode") == "improved":
+            age_info = output.get("management_diagnostics", {}).get("age_normalization", {})
+            if age_info.get("status") == "normalized":
+                unit = age_info["unit"]
+                value = age_info["age_months" if unit == "months" else "age_years"]
+                st.caption(f"Age interpreted for management: {value:g} {unit}.")
         for section, key in (("Investigations", "investigations"), ("Treatment", "medication"), ("Advice", "advice")):
             st.markdown(f"### {section}")
             items = output.get(key, [])
@@ -424,9 +430,8 @@ def main() -> None:
             if improved:
                 from management_evidence import condition_text
                 items = [item for item in items if not item.get("review_required")]
-            if not items:
-                st.info("No patient-specific recommendation confirmed; see source matches and information needed below."
-                        if improved else "No validated recommendation available for this section; clinician review required.")
+            if not items and not improved:
+                st.info("No validated recommendation available for this section; clinician review required.")
             for item in items:
                 _render_recommendation_item(st, item)
                 if key == "medication":
@@ -440,21 +445,31 @@ def main() -> None:
                 matches = [rule for entry in reviews for rule in entry["supported_rules"]
                            if rule.get("source_instruction")]
                 if matches:
-                    st.write("Source instructions matching known facts — clinician review required:")
+                    st.write("Matching source guidance — clinician review required:")
+                    shown = set()
                     for rule in matches:
-                        st.write(rule["source_instruction"])
-                        st.caption(f"{rule['card_id']} | Rule: {rule.get('rule_id') or 'source guidance'}")
+                        if rule["source_instruction"] in shown:
+                            continue
+                        shown.add(rule["source_instruction"])
+                        st.write("• " + rule["source_instruction"])
+                        pages = ", ".join(str(ref["pdf_page"]) for ref in rule["evidence"])
+                        st.caption(f"Source: {rule['card_id']} — PDF page {pages}")
                         with st.expander("Matched source condition"):
                             st.write(condition_text(rule["condition"]))
                 unresolved = [entry for entry in reviews if entry["conditional_rules"]]
+                if not items and not matches:
+                    st.info("More information is needed; review the conditional options below."
+                            if unresolved else "No matching source guidance available for this section.")
                 if unresolved:
                     with st.expander("Conditional source options — information needed before use"):
-                        st.write("These are source options for assessment, not instructions to start treatment.")
+                        st.write("These requirements come from the source. They are not findings reported by the patient or instructions to start treatment.")
                         for entry in unresolved:
-                            st.write(f"{entry['card_id']} — {entry['title']}")
+                            st.markdown(f"**{entry['title']}**")
+                            st.caption(f"Source: {entry['card_id']}")
+                            if entry["missing_inputs"]:
+                                st.write("Information needed: " + ", ".join(f.replace("_", " ") for f in entry["missing_inputs"]))
+                            shown_restrictions = set()
                             for rule in entry["conditional_rules"]:
-                                if rule["missing_inputs"]:
-                                    st.write("Check: " + ", ".join(f.replace("_", " ") for f in rule["missing_inputs"]))
                                 if rule["unsupported_rule"]:
                                     st.write("This source rule/table cannot yet be evaluated; do not assume a matching row.")
                                 if rule["condition"]:
@@ -463,13 +478,14 @@ def main() -> None:
                                     for gate in rule["prerequisites"]:
                                         st.write(f"Requires {gate['field'].replace('_', ' ')}: {gate['required_value']}")
                                 if rule["restrictions"]:
-                                    st.write("Source restrictions:")
                                     for restriction in rule["restrictions"]:
                                         if isinstance(restriction, dict):
-                                            st.write(restriction.get("interpretation") or restriction.get("action") or
-                                                     condition_text(restriction.get("condition")))
+                                            text = restriction.get("interpretation") or restriction.get("action") or condition_text(restriction.get("condition"))
                                         else:
-                                            st.write(str(restriction))
+                                            text = str(restriction)
+                                        if text not in shown_restrictions:
+                                            st.write("Restriction: " + text)
+                                            shown_restrictions.add(text)
         with st.expander("Management: source cards"):
             for cid in output.get("evidence_card_ids", []):
                 card = cards.get(cid)

@@ -784,6 +784,8 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
     source_values: dict[str, Any] = {}
     source_options: list[dict[str, Any]] = []
     if mode == "improved" and diseases:
+        from management_age import normalize_management_age
+        ctx, age_info = normalize_management_age(patient, ctx)
         from derived_fields import blocked_cards, derive_classifications
         from management_facts import extract_management_facts
         from management_evidence import source_context, prerequisite_state, rule_options
@@ -881,6 +883,9 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
     })
     result["management_diagnostics"]["blocked_card_ids"] = sorted(blocked)
     if mode == "improved":
+        result["management_diagnostics"]["age_normalization"] = age_info
+        if age_info.get("message"):
+            result["missing_info"].append(age_info["message"])
         result["management_diagnostics"]["management_fact_extraction"] = fact_info
         result["management_diagnostics"]["resolved_source_context"] = resolved
         result["working_diagnosis"] = diseases[0]
@@ -948,8 +953,11 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
                 "unresolved. Do not guess age-group boundaries or treatment setting. "
                 "Give relevant advice as well as investigations and treatment when evidence "
                 "supports it. Do not prescribe unrelated complications merely because their "
-                "cards share the protocol. Set probable_diagnosis to []. Each citation must "
-                "match its section's permitted references and page: "
+                "cards share the protocol. Set probable_diagnosis to []. "
+                "Write concise items, group related information, and avoid repeating the "
+                "same instruction or generic disclaimer across items. Missing conditions "
+                "are questions to clarify, not patient findings. "
+                "Each citation must match its section's permitted references and page: "
                 + json.dumps(references))
         selected, omitted = pack_evidence(prepared, patient, generation_prompt, "")
         unique_options = {(o["card_id"], o["rule_id"], json.dumps(o["condition"], sort_keys=True)): o
