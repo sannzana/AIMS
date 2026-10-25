@@ -780,10 +780,22 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
     derived: dict[str, Any] = {}
     derived_trace: dict[str, Any] = {}
     blocked: dict[str, str] = {}
+    fact_info: dict[str, Any] = {}
     if mode == "improved" and diseases:
         from derived_fields import blocked_cards, derive_classifications
-        derived, derived_trace = derive_classifications(cards.values(), diseases[0], ctx)
-        ctx = {**ctx, **derived}
+        base_ctx = dict(ctx)
+        derived, derived_trace = derive_classifications(cards.values(), diseases[0], base_ctx)
+        if any(e.get("status") == "undecided" for e in derived_trace.get("fields", {}).values()):
+            # The facts that settle the treatment branch are not offered to the
+            # model during diagnosis; ask for them (verified, fail-closed).
+            from management_facts import extract_management_facts
+            new_facts, fact_info = extract_management_facts(
+                patient, cards.values(), diseases[0], base_ctx, llm_generate)
+            if new_facts:
+                base_ctx = {**base_ctx, **new_facts}
+                derived, derived_trace = derive_classifications(
+                    cards.values(), diseases[0], base_ctx)
+        ctx = {**base_ctx, **derived}
         blocked = blocked_cards(derived_trace)
     # Retrieve a broader pool, then use the card's *actual* source-rule
     # applicability to rank candidates. Similarity alone previously exhausted
@@ -853,6 +865,8 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
             "added_by_rule": extra_ids,
         },
     })
+    if mode == "improved":
+        result["management_diagnostics"]["management_fact_extraction"] = fact_info
     result["management_diagnostics"]["blocked_card_ids"] = sorted(blocked)
     for field_name, entry in derived_trace.get("fields", {}).items():
         if entry.get("status") == "undecided":
@@ -911,7 +925,23 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
             ("advice", "Advice"),
         )
     }
-    prompt = _prompt(patient, selected) + (
+    management_context = ""
+    if mode == "improved":
+        management_context = (
+            " SELECTED WORKING PROTOCOL (probable, not confirmed): "
+            + json.dumps(diseases[0], ensure_ascii=False)
+            + ". VERIFIED OR SUPPLIED PATIENT FACTS AND SOURCE-DERIVED CLASSIFICATION: "
+            + json.dumps({key: value for key, value in ctx.items()
+                          if not key.startswith("_") and key not in {
+                              *QUERY_FIELDS, "clinical_findings", "measurements",
+                              "medicines", "allergies"}},
+                         ensure_ascii=False, default=str)
+            + ". Use these facts alongside the original patient narrative. "
+            "A card may contain alternative instructions; use only the branch "
+            "whose own conditions are supported. Unresolved branch conditions "
+            "must be reported as missing information, never guessed. "
+        )
+    prompt = _prompt(patient, selected) + management_context + (
         " This is management for a PROBABLE, unconfirmed diagnosis. "
         " Only output investigations citing Investigation cards, medication citing "
         "Medication cards, and advice citing Advice cards. EACH citation must "
