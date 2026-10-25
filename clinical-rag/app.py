@@ -417,6 +417,9 @@ def main() -> None:
         if output.get("missing_info"):
             with st.expander("Missing management information"):
                 for detail in output["missing_info"]:
+                    if st.session_state.get("case_mode") == "improved":
+                        from management_presentation import conditional_message
+                        detail = conditional_message(detail)
                     st.write(f"- {detail}")
         if output.get("management_diagnostics"):
             with st.expander("Management pipeline diagnostics (no patient text)"):
@@ -492,10 +495,12 @@ def main() -> None:
                                 card = cards.get(rule["card_id"])
                                 if card and card.model_dump().get("relevant_symptoms_or_prerequisites"):
                                     st.write("Other source prerequisites: " + str(card.model_dump()["relevant_symptoms_or_prerequisites"]))
-                unresolved = [entry for entry in reviews if entry["conditional_rules"]]
+                from management_presentation import split_conditional_sources
+                unresolved, additional = split_conditional_sources(reviews, output.get("management_diagnostics", {}))
                 if not items and not matches:
                     st.info("More information is needed; review the conditional options below."
-                            if unresolved else "No matching source guidance available for this section.")
+                            if unresolved else "No matching source guidance established; additional source material is available below."
+                            if additional else "No matching source guidance available for this section.")
                 if unresolved:
                     with st.expander("Conditional source options — information needed before use"):
                         st.write("These requirements come from the source. They are not findings reported by the patient or instructions to start treatment.")
@@ -529,6 +534,15 @@ def main() -> None:
                                         if text not in shown_restrictions:
                                             st.write("Restriction: " + text)
                                             shown_restrictions.add(text)
+                if additional:
+                    with st.expander("Additional source material — applicability not established"):
+                        st.write("These are not selected treatment recommendations. Their source conditions still need assessment.")
+                        for entry in additional:
+                            st.write(f"{entry['title']} — {entry['card_id']}")
+                            if entry.get("missing_inputs"):
+                                st.caption("Not established: " + ", ".join(field.replace("_", " ") for field in entry["missing_inputs"]))
+                            if any(rule.get("unsupported_rule") for rule in entry["conditional_rules"]):
+                                st.caption("Source table/rule requires manual review; no row or dose is assumed.")
         with st.expander("Management: source cards"):
             for cid in output.get("evidence_card_ids", []):
                 card = cards.get(cid)
