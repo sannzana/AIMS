@@ -723,11 +723,33 @@ def _enforce_management_evidence_boundary(
                             + (f"; not known: {', '.join(missing[:8])}" if missing else "")
                         )
                 if uncertain and section in {"medication", "advice"}:
-                    if hasattr(item, "reason"):
-                        item.reason = (
-                            "Conditional source guidance; do not treat this as "
-                            "patient-specific approval. " + item.reason
-                        )
+                    # An unknown prerequisite is NOT permission to reproduce the
+                    # model's complete treatment regimen or discharge order.
+                    # Keep a discoverable, cited conditional option instead;
+                    # the full source still exists in the card corpus.
+                    label = ", ".join(dict.fromkeys(getattr(card, "card_title", "cited source") for card in citations))
+                    item.text = (
+                        "CONDITIONAL GUIDELINE INFORMATION ONLY — clinical "
+                        "eligibility not established. Source option for review: "
+                        + label + ". No patient-specific dosing or discharge "
+                        "instruction is authorised."
+                    )
+                    item.reason = (
+                        "Conditional source guidance; required source conditions are unresolved. "
+                        "Assess the missing inputs before deciding whether "
+                        "this option is appropriate."
+                    )
+                    if isinstance(item, MedicationRecommendation):
+                        item.eligibility = "conditional"
+                        # Even source-authentic doses may refer to another age,
+                        # weight or treatment branch. Do not show them as a
+                        # patient regimen before eligibility is established.
+                        for field in ("dose", "route", "frequency", "duration", "instructions"):
+                            setattr(item, field, None)
+                        item.source_details = None
+                        for note in uncertain:
+                            if note not in item.eligibility_notes:
+                                item.eligibility_notes.append(note)
                     missing_info = getattr(response, "missing_info", None)
                     if isinstance(missing_info, list):
                         for note in uncertain:
@@ -763,11 +785,33 @@ def recommend_management(patient: dict[str, Any], *, mode: str = "improved",
         derived, derived_trace = derive_classifications(cards.values(), diseases[0], ctx)
         ctx = {**ctx, **derived}
         blocked = blocked_cards(derived_trace)
-    for category, count in (("Investigation", 2), ("Medication", 2), ("Advice", 2)):
+    # Retrieve a broader pool, then use the card's *actual* source-rule
+    # applicability to rank candidates. Similarity alone previously exhausted
+    # the two-card budget with unrelated, eligibility-unknown medication cards.
+    # This changes evidence discovery, never the rule-based eligibility gate.
+    category_limits = (("Investigation", 3), ("Medication", 4), ("Advice", 3)) if mode == "improved" else (
+        ("Investigation", 2), ("Medication", 2), ("Advice", 2))
+    for category, count in category_limits:
         spare = sum(1 for cid in blocked if cards[cid].clinical_category == category) if blocked else 0
+        pool_size = max(10, count + spare) if mode == "improved" else count + spare
         hits = retrieve_category(patient, category, diseases=diseases,
-                                 top_k=count + spare, persist_dir=persist_dir, cards=cards)
-        hits = [h for h in hits if h.get("card_id") not in blocked][:count]
+                                 top_k=pool_size, persist_dir=persist_dir, cards=cards)
+        viable = []
+        for hit in hits:
+            card = cards.get(hit.get("card_id"))
+            if (card is None or card.card_id in blocked
+                    or (mode == "improved" and diseases and card.disease_protocol != diseases[0])):
+                continue
+            status = card_rule_applicability(card, ctx)
+            if status and status.get("status") == "not_applicable":
+                continue
+            # Keep retrieval ordering among candidates with equal rule support.
+            # A proven applicable source rule outranks an unknown indication,
+            # but unknown cards remain candidates rather than being discarded.
+            rank = 0 if status and status.get("status") == "applicable" else 1
+            viable.append((rank, hit))
+        viable.sort(key=lambda entry: entry[0])
+        hits = [hit for _, hit in viable[:count]]
         retrieval_trace[category] = [
             str(hit.get("card_id")) for hit in hits if hit.get("card_id")
         ]
