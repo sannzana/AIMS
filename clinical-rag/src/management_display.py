@@ -113,7 +113,7 @@ def instruction_groups(matches, cards, added=()):
 
 
 def render_instruction_groups(st, matches, cards, added=()):
-    from management_evidence import condition_text
+    from clinical_readability import muted, condition, detail, requirements
     for group in instruction_groups(matches, cards, added):
         with st.container(border=True):
             st.markdown("**" + group["label"] + "**")
@@ -129,18 +129,17 @@ def render_instruction_groups(st, matches, cards, added=()):
             if group["timing"]:
                 st.caption("Timing from source: " + group["timing"])
             refs = list(dict.fromkeys((r["card_id"], e["pdf_page"]) for r in group["rules"] for e in r["evidence"]))
-            st.caption("Source: " + "; ".join(f"{cid} — PDF page {page}" for cid, page in refs))
-            with st.expander("Matched source conditions & original wording"):
+            muted(st, "Source: " + "; ".join(f"{cid} — PDF page {page}" for cid, page in refs))
+            with st.expander(":gray[Matched source conditions & original wording]"):
                 for rule in group["rules"]:
-                    st.caption(f"{rule['card_id']} / {rule.get('rule_id')}")
-                    st.write(condition_text(rule.get("condition")))
-                    st.write("Original source instruction: " + (rule.get("source_instruction") or ""))
-                    for gate in rule.get("prerequisites", []):
-                        st.write(f"Requires {gate['field'].replace('_', ' ')}: {gate['required_value']} ({gate['status']})")
+                    muted(st, f"{rule['card_id']} / {rule.get('rule_id')}")
+                    condition(st, rule.get("condition"), secondary=True)
+                    detail(st, "Original source instruction", rule.get("source_instruction") or "", secondary=True)
+                    requirements(st, rule.get("prerequisites", []), secondary=True)
                     card = cards.get(rule["card_id"])
                     if card and _raw(card).get("relevant_symptoms_or_prerequisites"):
-                        st.write("Source context: " + str(_raw(card)["relevant_symptoms_or_prerequisites"]))
-            with st.expander("Full source reference — not a patient-specific plan"):
+                        detail(st, "Source context", _raw(card)["relevant_symptoms_or_prerequisites"], secondary=True)
+            with st.expander(":blue[Full source reference] — not a patient-specific plan"):
                 st.caption("This original reference may include other age bands and unresolved conditions. Only the matching guidance above was selected.")
                 reference_key = "source_reference_" + "|".join(f"{r['card_id']}:{r.get('rule_id')}" for r in group["rules"])
                 if st.toggle("Show original source text", key=reference_key):
@@ -153,6 +152,7 @@ def render_instruction_groups(st, matches, cards, added=()):
 
 def render_plan_reference(st, output, cards, pathway):
     """Explicit reference view of matched source cards, not another plan selection."""
+    from clinical_readability import muted
     ids = list(dict.fromkeys(entry["card_id"] for entry in output.get("source_review_options", [])
                              if entry.get("supported_rules")))
     with st.expander(f"{pathway} — view source details"):
@@ -163,7 +163,7 @@ def render_plan_reference(st, output, cards, pathway):
                 raw = _raw(cards.get(cid))
                 with st.container(border=True):
                     st.markdown("**" + str(raw.get("card_title") or cid) + "**")
-                    st.caption(f"Source: {cid} — PDF pages {raw.get('pdf_page_numbers', [])}")
+                    muted(st, f"Source: {cid} — PDF pages {raw.get('pdf_page_numbers', [])}")
                     if raw.get("recommended_action"):
                         st.write(raw["recommended_action"])
                     with st.expander("Complete card data — original conditions and tables"):

@@ -157,14 +157,18 @@ def diagnosis_from_triage(ranking: dict[str, Any], cards: dict[str, Card]) -> di
     }
 
 
-def _render_recommendation_item(st: Any, item: dict[str, Any]) -> None:
+def _render_recommendation_item(st: Any, item: dict[str, Any], *, subtle_sources: bool = False) -> None:
     st.markdown(f"**{item.get('text', 'Unspecified recommendation')}**")
     if item.get("reason"):
         st.write(f"Reason: {item['reason']}")
     if item.get("evidence"):
-        st.write("Evidence references:")
-        for reference in item["evidence"]:
-            st.write(f"- {reference['card_id']} — PDF page {reference['pdf_page']}")
+        if subtle_sources:
+            from clinical_readability import muted
+            muted(st, "Source: " + "; ".join(f"{r['card_id']} — PDF page {r['pdf_page']}" for r in item["evidence"]))
+        else:
+            st.write("Evidence references:")
+            for reference in item["evidence"]:
+                st.write(f"- {reference['card_id']} — PDF page {reference['pdf_page']}")
 
 
 def _render_recommendations(st: Any, result: dict[str, Any]) -> None:
@@ -364,19 +368,21 @@ def main() -> None:
                        " (source-grounded triage status, not a diagnosis probability)")
         if output.get("notice"):
             st.warning(output["notice"])
-        if st.session_state.get("case_mode") == "improved":
-            with st.expander("Diagnostic pipeline diagnostics (no patient text)"):
-                st.json(st.session_state.get("diagnosis_ranking", {}).get("diagnostics", {}))
         for item in output.get("probable_diagnosis", []):
-            _render_recommendation_item(st, item)
+            _render_recommendation_item(st, item, subtle_sources=st.session_state.get("case_mode") == "improved")
         for item in output.get("uncertain_differentials", []):
-            _render_recommendation_item(st, item)
+            _render_recommendation_item(st, item, subtle_sources=st.session_state.get("case_mode") == "improved")
         if output.get("evidence_card_ids"):
-            with st.expander("Diagnosis: source cards"):
+            with st.expander(":gray[Diagnosis: source cards]" if st.session_state.get("case_mode") == "improved" else "Diagnosis: source cards"):
                 for cid in output["evidence_card_ids"]:
                     card = cards.get(cid)
                     if card:
-                        st.write(f"{cid} — {getattr(card, 'card_title', '')} ({card.disease_protocol}), pages {card.pdf_page_numbers}")
+                        text = f"{cid} — {getattr(card, 'card_title', '')} ({card.disease_protocol}), pages {card.pdf_page_numbers}"
+                        if st.session_state.get("case_mode") == "improved":
+                            from clinical_readability import muted
+                            muted(st, text)
+                        else:
+                            st.write(text)
         if st.session_state.get("case_mode") == "improved":
             candidates = st.session_state.get("case_diseases", [])
             if candidates:
@@ -450,7 +456,7 @@ def main() -> None:
                         from management_presentation import conditional_message
                         detail = conditional_message(detail)
                     st.write(f"- {detail}")
-        if output.get("management_diagnostics"):
+        if output.get("management_diagnostics") and st.session_state.get("case_mode") != "improved":
             with st.expander("Management pipeline diagnostics (no patient text)"):
                 st.json(output["management_diagnostics"])
         if st.session_state.get("case_mode") == "improved":
@@ -498,7 +504,7 @@ def main() -> None:
             if not items and not improved:
                 st.info("No validated recommendation available for this section; clinician review required.")
             for item in items:
-                _render_recommendation_item(st, item)
+                _render_recommendation_item(st, item, subtle_sources=st.session_state.get("case_mode") == "improved")
                 if key == "medication":
                     details = {x: item[x] for x in ("name", "dose", "route", "frequency", "duration", "instructions") if item.get(x)}
                     if details:
@@ -521,37 +527,8 @@ def main() -> None:
                             if additional else "No matching source guidance available for this section.")
                 if unresolved:
                     with st.expander("Conditional source options — information needed before use"):
-                        st.write("These requirements come from the source. They are not findings reported by the patient or instructions to start treatment.")
-                        for entry in unresolved:
-                            st.markdown(f"**{entry['title']}**")
-                            st.caption(f"Source: {entry['card_id']}")
-                            if entry["missing_inputs"]:
-                                st.write("Information needed: " + ", ".join(f.replace("_", " ") for f in entry["missing_inputs"]))
-                            shown_restrictions = set()
-                            for rule in entry["conditional_rules"]:
-                                if rule["status"] == "restricted":
-                                    st.write("A source restriction applies; this instruction is not approved for the supplied facts.")
-                                age_selection = rule.get("age_clause_selection")
-                                if age_selection and age_selection["status"] != "matched":
-                                    st.write("Age-specific instruction requires review: " + age_selection["status"].replace("_", " "))
-                                    if rule.get("source_instruction"):
-                                        st.write("Unselected source alternatives (not patient-specific instructions): " + rule["source_instruction"])
-                                if rule["unsupported_rule"]:
-                                    st.write("This source rule/table cannot yet be evaluated; do not assume a matching row.")
-                                if rule["condition"]:
-                                    st.write("Applies if: " + condition_text(rule["condition"]))
-                                if rule["prerequisites"]:
-                                    for gate in rule["prerequisites"]:
-                                        st.write(f"Requires {gate['field'].replace('_', ' ')}: {gate['required_value']}")
-                                if rule["restrictions"]:
-                                    for restriction in rule["restrictions"]:
-                                        if isinstance(restriction, dict):
-                                            text = restriction.get("interpretation") or restriction.get("action") or condition_text(restriction.get("condition"))
-                                        else:
-                                            text = str(restriction)
-                                        if text not in shown_restrictions:
-                                            st.write("Restriction: " + text)
-                                            shown_restrictions.add(text)
+                        from clinical_readability import render_conditional_options
+                        render_conditional_options(st, unresolved)
                 if additional:
                     with st.expander("Additional source material — applicability not established"):
                         st.write("Other source references, not selected treatment recommendations. Open an entry to review its unresolved conditions.")
@@ -561,14 +538,31 @@ def main() -> None:
                                     st.caption("Not established: " + ", ".join(field.replace("_", " ") for field in entry["missing_inputs"]))
                                 if any(rule.get("unsupported_rule") for rule in entry["conditional_rules"]):
                                     st.caption("Not automatically evaluated: this source table/rule requires manual review. Additional answers alone do not enable automatic row selection; no row or dose is assumed.")
-        with st.expander("Management: source cards"):
+        with st.expander(":gray[Management: source cards]" if st.session_state.get("case_mode") == "improved" else "Management: source cards"):
             for cid in output.get("evidence_card_ids", []):
                 card = cards.get(cid)
                 if card:
-                    st.write(f"{cid} — {getattr(card, 'card_title', '')} ({card.disease_protocol}), pages {card.pdf_page_numbers}")
+                    text = f"{cid} — {getattr(card, 'card_title', '')} ({card.disease_protocol}), pages {card.pdf_page_numbers}"
+                    if st.session_state.get("case_mode") == "improved":
+                        from clinical_readability import muted
+                        muted(st, text)
+                    else:
+                        st.write(text)
         if st.session_state.get("case_mode") == "improved":
             from management_clarification_ui import render_questions
             render_questions(original_management, cards)
+    if st.session_state.get("case_mode") == "improved":
+        diagnostic_debug = st.session_state.get("diagnosis_ranking", {}).get("diagnostics", {})
+        management_debug = output.get("management_diagnostics", {}) if st.session_state.get("case_management_requested") else {}
+        if diagnostic_debug or management_debug:
+            with st.expander(":gray[Technical diagnostics] — no patient text"):
+                st.caption("Optional technical details; clinical guidance is shown above.")
+                if diagnostic_debug:
+                    with st.expander(":gray[Diagnostic pipeline diagnostics]"):
+                        st.json(diagnostic_debug)
+                if management_debug:
+                    with st.expander(":gray[Management pipeline diagnostics]"):
+                        st.json(management_debug)
     st.caption("Educational prototype only; all recommendations need qualified clinical review.")
 
 
