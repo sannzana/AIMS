@@ -1,0 +1,83 @@
+[
+  {
+    "case_id": "C1",
+    "patient": {
+      "symptoms": "High fever, severe joint pain in both wrists, knees and ankles, headache, rash",
+      "duration": "3 days",
+      "age": "32 years",
+      "sex": "female",
+      "history": "No pre-existing liver or kidney disease; no other chronic diseases",
+      "medicines": "None",
+      "clinical_findings": "Swollen and tender joints, difficulty walking, no reported bleeding",
+      "measurements": "Temperature 39°C, BP 115/75 mmHg, SpO2 98%"
+    }
+  },
+  {
+    "case_id": "C2",
+    "patient": {
+      "symptoms": "High fever, severe headache, pain behind the eyes, muscle pain, nausea, rash",
+      "duration": "4 days",
+      "age": "25 years",
+      "sex": "female",
+      "history": "No known chronic diseases",
+      "medicines": "None",
+      "clinical_findings": "Mild dehydration, no severe joint swelling or bleeding",
+      "measurements": "Temperature 39.2°C, BP 110/70 mmHg, SpO2 99%"
+    }
+  },
+  {
+    "case_id": "C3",
+    "patient": {
+      "symptoms": "Sudden profuse watery rice-water diarrhoea, repeated vomiting, intense thirst, weakness, leg cramps",
+      "duration": "12 hours",
+      "age": "37 years",
+      "sex": "female",
+      "history": "Recently drank untreated water; no chronic diseases",
+      "medicines": "None",
+      "clinical_findings": "Sunken eyes, dry mouth, reduced urine output, weak rapid pulse",
+      "measurements": "BP 90/60 mmHg, pulse 118 bpm, temperature 37°C"
+    }
+  },
+  {
+    "case_id": "C4",
+    "patient": {
+      "symptoms": "Occasional morning headache, mild dizziness; no fever or chest pain",
+      "duration": "3 weeks",
+      "age": "52 years",
+      "sex": "female",
+      "history": "Repeated high BP readings over the past month; family history of hypertension",
+      "medicines": "None",
+      "allergies": "No known allergies",
+      "clinical_findings": "Alert, no focal neurological deficit or shortness of breath",
+      "measurements": "Clinic BP 158/96 mmHg, repeated BP 156/94 mmHg after rest, pulse 78 bpm"
+    }
+  },
+  {
+    "case_id": "C5",
+    "patient": {
+      "symptoms": "Sudden high fever, headache, joint pain, muscle pain, rash, nausea",
+      "duration": "2 days",
+      "age": "29 years",
+      "sex": "Male",
+      "history": "No known chronic diseases; recent mosquito exposure",
+      "medicines": "None",
+      "allergies": "No known allergies",
+      "clinical_findings": "Generalised joint pain without clear joint swelling; no reported bleeding",
+      "measurements": "Temperature 39°C, BP 110/75 mmHg"
+    }
+  },
+  {
+    "case_id": "C6",
+    "patient": {
+      "symptoms": "High fever, severe joint pain in both wrists, knees and ankles, headache, rash",
+      "duration": "3 days",
+      "age": "32 years",
+      "sex": "Female",
+      "history": "Known pre-existing liver disease; no pre-existing kidney disease; no other chronic diseases",
+      "medicines": "None",
+      "allergies": "Unknown",
+      "clinical_findings": "Swollen and tender joints, difficulty walking, no reported bleeding",
+      "measurements": "Temperature 39°C, BP 115/75 mmHg, SpO2 98%"
+    }
+  }
+]
