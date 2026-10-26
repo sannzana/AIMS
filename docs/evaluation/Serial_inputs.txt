@@ -1,0 +1,65 @@
+CASE 1
+High fever, severe joint pain in both wrists, knees and ankles, headache, rash
+Swollen and tender joints, difficulty walking, no reported bleeding
+Temperature 39°C, BP 115/75 mmHg, SpO2 98%
+No pre-existing liver or kidney disease; no other chronic diseases
+3 days
+32 years
+Female
+None
+Unknown
+
+CASE 2
+High fever, severe headache, pain behind the eyes, muscle pain, nausea, rash
+Mild dehydration, no severe joint swelling or bleeding
+Temperature 39.2°C, BP 110/70 mmHg, SpO2 99%
+No known chronic diseases
+4 days
+25 years
+Male
+None
+No known allergies
+
+CASE 3
+Sudden profuse watery rice-water diarrhoea, repeated vomiting, intense thirst, weakness, leg cramps
+Sunken eyes, dry mouth, reduced urine output, weak rapid pulse
+BP 90/60 mmHg, pulse 118 bpm, temperature 37°C
+Recently drank untreated water; no chronic diseases
+12 hours
+38 years
+Male
+None
+Unknown
+
+CASE 4
+Occasional morning headache, mild dizziness; no fever or chest pain
+Alert, no focal neurological deficit or shortness of breath
+Clinic BP 158/96 mmHg, repeated BP 156/94 mmHg after rest, pulse 78 bpm
+Repeated high BP readings over the past month; family history of hypertension
+3 weeks
+52 years
+Female
+None
+No known allergies
+
+CASE 5
+Sudden high fever, headache, joint pain, muscle pain, rash, nausea
+Generalised joint pain without clear joint swelling; no reported bleeding
+Temperature 39°C, BP 110/75 mmHg
+No known chronic diseases; recent mosquito exposure
+2 days
+29 years
+Female
+None
+Unknown
+
+CASE 6
+High fever, severe joint pain in both wrists, knees and ankles, headache, rash
+Swollen and tender joints, difficulty walking, no reported bleeding
+Temperature 39°C, BP 115/75 mmHg, SpO2 98%
+Known pre-existing liver disease; no pre-existing kidney disease; no other chronic diseases
+3 days
+32 years
+Female
+None
+Unknown
