@@ -252,9 +252,11 @@ def _render_card(st: Any, card: Card, result: dict[str, Any], patient: dict[str,
 
 def main() -> None:
     st = _streamlit()
-    st.set_page_config(page_title="Clinical NLP + RAG", layout="wide")
-    st.title("Clinical NLP + RAG prototype")
-    st.warning(
+    from app_presentation import APP_TITLE, style, validation_details
+    st.set_page_config(page_title=APP_TITLE, layout="wide")
+    style(st)
+    st.title(APP_TITLE)
+    st.error(
         "Prototype only. Retrieved evidence is not medical advice. "
         "Diagnoses are not confirmed and every recommendation requires clinician review."
     )
@@ -281,20 +283,18 @@ def main() -> None:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         st.error(f"Could not load clinical cards: {exc}")
         return
-    st.caption(f"Loaded {len(cards)} cards from data/cards.jsonl; no verification filtering applied in the app.")
-
     try:
         card_count, validation_errors = validation_summary()
     except (OSError, json.JSONDecodeError) as exc:
-        st.warning(f"Evidence validation could not run: {exc}")
+        validation_report = f"Evidence validation could not run: {exc}"
     else:
         if validation_errors:
-            st.warning(
+            validation_report = (
                 f"Evidence validation reports {validation_errors} issue(s) across "
                 f"{card_count} cards. Manual source verification is still required."
             )
         else:
-            st.info("Evidence validation reported no text/page errors; manual verification is still required.")
+            validation_report = "Evidence validation reported no text/page errors; manual verification is still required."
 
     with st.form("patient_case"):
         symptoms = st.text_area("Symptoms", placeholder="Fever, headache, joint pain")
@@ -325,17 +325,19 @@ def main() -> None:
         st.session_state["case_diseases"] = []
         st.session_state["case_requested_stage"] = "Diagnosis"
         st.session_state["case_management_requested"] = False
-        st.session_state.pop("working_disease", None)
+        from app_presentation import reset_case_selection
+        reset_case_selection(st.session_state)
 
     if "case_patient" not in st.session_state:
+        validation_details(st, validation_report)
         return
     patient = st.session_state["case_patient"]
     if st.session_state.get("case_mode") == "improved":
         from improved_input import normalize_improved_inputs
         patient = normalize_improved_inputs(patient)
         st.session_state["case_patient"] = patient
-    st.subheader("Patient information")
-    st.json(patient)
+    with st.expander("Patient information — view submitted details", expanded=False):
+        st.json(patient)
 
     # Initial diagnosis runs automatically after case submission.
     if st.session_state.pop("case_requested_stage", None) == "Diagnosis":
@@ -403,12 +405,8 @@ def main() -> None:
         if st.session_state.get("case_mode") == "improved":
             candidates = st.session_state.get("case_diseases", [])
             if candidates:
-                st.selectbox(
-                    "Working diagnosis for management (clinician selection)",
-                    candidates, index=0 if len(candidates) == 1 else None,
-                    placeholder="Select a working diagnosis",
-                    key="working_disease",
-                )
+                from app_presentation import choose_working_diagnosis
+                choose_working_diagnosis(st, candidates)
             else:
                 st.warning("No source-backed candidate is available for clinician selection.")
             can_generate = bool(st.session_state.get("working_disease") in candidates)
@@ -533,7 +531,7 @@ def main() -> None:
                 matches = [rule for entry in reviews for rule in entry["supported_rules"]
                            if rule.get("source_instruction")]
                 if matches:
-                    st.write("Matching source guidance — clinician review required:")
+                    st.info("Matching source guidance — clinician review required:")
                     from management_display import render_instruction_groups
                     render_instruction_groups(st, matches, cards, guidance_updates["added"])
                 from management_presentation import split_conditional_sources
@@ -544,10 +542,12 @@ def main() -> None:
                             if additional else "No matching source guidance available for this section.")
                 if unresolved:
                     with st.expander("Conditional source options — information needed before use"):
+                        st.warning("Conditional — assess the missing requirements before use.")
                         from clinical_readability import render_conditional_options
                         render_conditional_options(st, unresolved)
                 if additional:
                     with st.expander("Additional source material — applicability not established"):
+                        st.info("Reference only — not a selected treatment recommendation.")
                         st.write("Other source references, not selected treatment recommendations. Open an entry to review its unresolved conditions.")
                         for entry in additional:
                             with st.expander(f"{entry['title']} — {entry['card_id']}"):
@@ -580,6 +580,7 @@ def main() -> None:
                 if management_debug:
                     with st.expander(":gray[Management pipeline diagnostics]"):
                         st.json(management_debug)
+    validation_details(st, validation_report)
     st.caption("Educational prototype only; all recommendations need qualified clinical review.")
 
 
