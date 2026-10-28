@@ -77,7 +77,8 @@ def test_improved_diagnostics_move_to_bottom_without_mutating_results(monkeypatc
     labels = [e.label for e in at.expander]
     technical = next(i for i, label in enumerate(labels) if 'Technical diagnostics' in label)
     assert technical > next(i for i, label in enumerate(labels) if 'Management: source cards' in label)
-    assert technical > labels.index('Improve treatment with additional information')
+    assert 'Improve treatment with additional information' not in labels
+    assert any(h.value == 'Improve treatment with additional information' for h in at.subheader)
     assert any('Diagnostic pipeline diagnostics' in label for label in labels[technical:])
     assert any('Management pipeline diagnostics' in label for label in labels[technical:])
     text = '\n'.join(x.value for x in at.markdown)

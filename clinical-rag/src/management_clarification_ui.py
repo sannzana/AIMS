@@ -21,7 +21,9 @@ def render_questions(original, cards):
     if st.session_state.get("working_disease") != original.get("working_diagnosis"):
         return
     offered = questions(state["view"], cards, state["asked"])
-    with st.expander("Improve treatment with additional information"):
+    with st.container(border=True, key="management_questions_panel"):
+        st.subheader("Improve treatment with additional information")
+        st.info("Answer the questions below to reassess management source matches. Unknown is a valid answer.")
         st.caption("Optional source-based questions. Answer only if known; Unknown or Skip keeps existing guidance. "
                    "Answers affect management only, not the original diagnosis. Source field labels may require clinician interpretation.")
         if state["view"] is not original:

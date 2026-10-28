@@ -388,9 +388,11 @@ def main() -> None:
         if output.get("notice"):
             st.warning(output["notice"])
         for item in output.get("probable_diagnosis", []):
-            _render_recommendation_item(st, item, subtle_sources=st.session_state.get("case_mode") == "improved")
+            from app_presentation import diagnosis_card
+            diagnosis_card(st, item)
         for item in output.get("uncertain_differentials", []):
-            _render_recommendation_item(st, item, subtle_sources=st.session_state.get("case_mode") == "improved")
+            from app_presentation import diagnosis_card
+            diagnosis_card(st, item, differential=True)
         if output.get("evidence_card_ids"):
             with st.expander(":gray[Diagnosis: source cards]" if st.session_state.get("case_mode") == "improved" else "Diagnosis: source cards"):
                 for cid in output["evidence_card_ids"]:

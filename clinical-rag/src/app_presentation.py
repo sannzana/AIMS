@@ -4,14 +4,35 @@ APP_TITLE = "AIMScribe : Detect & Treat"
 
 def style(st):
     st.markdown("""<style>
-    .st-key-working_diagnosis_picker [data-baseweb="select"] > div {
-        background: #e8f1ff; border: 2px solid #2563eb; color: #102f64;
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+        background-color: #e8f1ff !important; border: 2px solid #2563eb !important; color: #102f64 !important;
         border-radius: 9px; min-height: 48px;
     }
-    .st-key-working_diagnosis_picker [data-baseweb="select"] span {
-        color: #102f64;
+    [data-testid="stSelectbox"] [data-baseweb="select"] span {
+        color: #102f64 !important;
+    }
+    [class*="st-key-management_questions_panel"] {
+        border: 2px solid #2563eb !important; border-radius: 12px;
+        padding: 1rem; background-color: rgba(37,99,235,.07);
     }
     </style>""", unsafe_allow_html=True)
+
+
+def diagnosis_card(st, item, *, differential=False):
+    from html import escape
+    background, border, label = ('#fff4df', '#b86b00', 'Possible differential') if differential else (
+        '#e8f1ff', '#2563eb', 'Source-backed candidate')
+    title = escape(str(item.get('text', 'Diagnosis candidate')))
+    reason = escape(str(item.get('reason', '')))
+    refs = '; '.join(f"{r['card_id']} — PDF page {r['pdf_page']}" for r in item.get('evidence', []))
+    st.markdown(
+        f'<div style="background:{background};border:1px solid {border};border-left:6px solid {border};'
+        'border-radius:10px;padding:16px 18px;margin:12px 0;color:#172b4d">'
+        f'<div style="font-size:.8rem;font-weight:600;color:{border}">{label} · not confirmed</div>'
+        f'<div style="font-size:1.1rem;font-weight:700;margin:6px 0">{title}</div>'
+        + (f'<div style="line-height:1.6">Reason: {reason}</div>' if reason else '')
+        + (f'<div style="font-size:.78rem;color:#526174;margin-top:10px">Source: {escape(refs)}</div>' if refs else '')
+        + '</div>', unsafe_allow_html=True)
 
 
 def reset_case_selection(state):

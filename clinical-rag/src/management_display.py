@@ -148,6 +148,15 @@ def render_instruction_groups(st, matches, cards, added=()):
                         st.write(raw.get("card_title") or cid)
                         if raw.get("recommended_action"):
                             st.write(raw["recommended_action"])
+                        if raw.get("medication_details"):
+                            st.markdown("**Medication details from the original source**")
+                            st.caption("Source reference only: may include other ages, medicines, and restrictions. These entries are not automatically selected or approved for this patient.")
+                            st.json(raw["medication_details"])
+                        if raw.get("exact_supporting_evidence_passages"):
+                            st.markdown("**Original supporting passages**")
+                            for passage in raw["exact_supporting_evidence_passages"]:
+                                st.write(passage.get("passage", ""))
+                                st.caption(f"PDF page {passage.get('pdf_page', '')}")
 
 
 def render_plan_reference(st, output, cards, pathway):

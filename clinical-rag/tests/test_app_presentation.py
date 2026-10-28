@@ -42,3 +42,16 @@ def test_landing_screen_has_red_disclaimer_and_collapsed_validation():
     assert not any('142 issue' in warning.value for warning in at.warning)
     assert not any('Loaded 108 cards' in caption.value for caption in at.caption)
     assert any(e.label == 'Evidence validation — technical details' for e in at.expander)
+
+
+def test_diagnosis_cards_have_distinct_colors_and_escape_patient_text():
+    def script():
+        import streamlit as st
+        from app_presentation import diagnosis_card
+        diagnosis_card(st, {'text': 'Suspected candidate', 'reason': '<script>test</script>'})
+        diagnosis_card(st, {'text': 'Possible candidate'}, differential=True)
+    at = AppTest.from_function(script).run()
+    assert not at.exception
+    text = '\n'.join(m.value for m in at.markdown)
+    assert '#e8f1ff' in text and '#fff4df' in text
+    assert '&lt;script&gt;' in text and '<script>' not in text
