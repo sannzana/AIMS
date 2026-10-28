@@ -546,13 +546,15 @@ def main() -> None:
                     with st.expander("Conditional source options — information needed before use"):
                         st.warning("Conditional — assess the missing requirements before use.")
                         from clinical_readability import render_conditional_options
-                        render_conditional_options(st, unresolved)
+                        render_conditional_options(st, unresolved, cards)
                 if additional:
                     with st.expander("Additional source material — applicability not established"):
                         st.info("Reference only — not a selected treatment recommendation.")
                         st.write("Other source references, not selected treatment recommendations. Open an entry to review its unresolved conditions.")
                         for entry in additional:
                             with st.expander(f"{entry['title']} — {entry['card_id']}"):
+                                from management_display import render_source_doses
+                                render_source_doses(st, cards.get(entry['card_id']))
                                 if entry.get("missing_inputs"):
                                     st.caption("Not established: " + ", ".join(field.replace("_", " ") for field in entry["missing_inputs"]))
                                 if any(rule.get("unsupported_rule") for rule in entry["conditional_rules"]):

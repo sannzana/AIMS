@@ -140,3 +140,33 @@ def test_selected_plan_has_explicit_reference_box_without_changing_results(monke
     assert not at.exception
     assert any(e.label == "Complete card data — original conditions and tables" for e in at.expander)
     assert at.session_state["case_results"]["Management"] == result
+
+
+def test_medicine_source_doses_are_accessible_without_second_toggle():
+    from streamlit.testing.v1 import AppTest
+    def script():
+        import streamlit as st
+        from build_index import load_cards
+        from pathlib import Path
+        from management_display import render_source_doses
+        card = next(c for c in load_cards(Path('data/cards.jsonl')) if c.card_id == 'CHI-014')
+        render_source_doses(st, card)
+    at = AppTest.from_function(script).run()
+    assert not at.exception
+    assert any('View source doses and tables' in e.label for e in at.expander)
+    assert len(at.toggle) == 0
+    table_text = at.table[0].value.to_string(index=False)
+    assert 'adult dose' in table_text and 'child dose' in table_text
+    assert '1000 mg' in table_text and '50-60 mg/kg' in table_text
+    assert 'restriction' in table_text and 'liver or kidney disease' in table_text
+    assert any('not a patient-specific prescription' in w.value for w in at.warning)
+
+
+def test_source_table_values_and_missing_doses_remain_unchanged():
+    from management_display import source_detail_rows
+    value = {'age_group': '10 years and older', 'dose': None, 'weight_range_kg': [44, 50]}
+    before = copy.deepcopy(value)
+    rows = source_detail_rows(value)
+    assert value == before
+    assert {'Source field': 'dose', 'Original value': 'Not specified by source'} in rows
+    assert any(r['Original value'] == '10 years and older' for r in rows)

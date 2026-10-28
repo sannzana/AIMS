@@ -11,6 +11,41 @@ def _raw(card):
     return card.model_dump() if card else {}
 
 
+def source_detail_rows(value, prefix=""):
+    """Flatten source fields for display without selecting or changing values."""
+    rows = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            label = str(key).replace("_", " ")
+            rows.extend(source_detail_rows(child, f"{prefix} / {label}" if prefix else label))
+    elif isinstance(value, list):
+        for index, child in enumerate(value, 1):
+            rows.extend(source_detail_rows(child, f"{prefix} / item {index}"))
+    else:
+        rows.append({"Source field": prefix, "Original value": "Not specified by source" if value is None else str(value)})
+    return rows
+
+
+def render_source_doses(st, card):
+    raw = _raw(card)
+    details, tables = raw.get("medication_details"), raw.get("table_dependent_rules")
+    if not details and not tables:
+        return
+    with st.expander("View source doses and tables — reference only"):
+        st.warning("Original source reference, not a patient-specific prescription. Other age groups, medicines, or unresolved requirements may be included. A known age alone does not establish every dosing prerequisite.")
+        if raw.get("relevant_symptoms_or_prerequisites"):
+            st.write("Source prerequisites: " + raw["relevant_symptoms_or_prerequisites"])
+        if details:
+            st.markdown("**Medicine details and age-specific source doses**")
+            st.table(source_detail_rows(details))
+        if tables:
+            st.markdown("**Original source table values — no row automatically selected**")
+            st.table(source_detail_rows(tables))
+        if raw.get("exclusions_or_missing_information"):
+            st.write("Source limits: " + str(raw["exclusions_or_missing_information"]))
+        st.caption("Source: " + str(raw.get("card_id")) + " — PDF pages " + str(raw.get("pdf_page_numbers", [])))
+
+
 def _single_medicine(card):
     details = _raw(card).get("medication_details")
     if not isinstance(details, dict) or any(isinstance(v, (dict, list)) for v in details.values()):
@@ -128,6 +163,8 @@ def render_instruction_groups(st, matches, cards, added=()):
                     st.caption("Matched source age band: " + line["age_label"])
             if group["timing"]:
                 st.caption("Timing from source: " + group["timing"])
+            for cid in dict.fromkeys(r["card_id"] for r in group["rules"]):
+                render_source_doses(st, cards.get(cid))
             refs = list(dict.fromkeys((r["card_id"], e["pdf_page"]) for r in group["rules"] for e in r["evidence"]))
             muted(st, "Source: " + "; ".join(f"{cid} — PDF page {page}" for cid, page in refs))
             with st.expander(":gray[Matched source conditions & original wording]"):

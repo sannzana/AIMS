@@ -41,7 +41,7 @@ def requirements(st, gates, secondary=False):
         detail(st, 'Requires ' + readable(gate['field']), value, secondary)
 
 
-def render_conditional_options(st, entries):
+def render_conditional_options(st, entries, cards=None):
     """Group repeated shared gates; preserve every condition and restriction."""
     from management_evidence import condition_text
     st.caption('These requirements come from the source, not patient findings or instructions to start treatment.')
@@ -49,6 +49,9 @@ def render_conditional_options(st, entries):
         with st.container(border=True):
             st.markdown('**' + entry['title'] + '**')
             muted(st, 'Source: ' + entry['card_id'])
+            if cards:
+                from management_display import render_source_doses
+                render_source_doses(st, cards.get(entry['card_id']))
             if entry.get('missing_inputs'):
                 detail(st, 'Information needed', ', '.join(entry['missing_inputs']))
             rules = entry['conditional_rules']
