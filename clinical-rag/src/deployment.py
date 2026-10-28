@@ -30,7 +30,7 @@ def ensure_index(root: Path) -> int:
     from build_index import build_index
 
     with _INDEX_LOCK:
-        path = root / "data" / "index"
+        path = (root / "data" / "index").resolve()
         path.mkdir(parents=True, exist_ok=True)
         client = chromadb.PersistentClient(path=str(path))
         try:

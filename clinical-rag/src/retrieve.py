@@ -11,6 +11,13 @@ from typing import Any, Mapping
 from build_index import load_cards
 
 
+def _index_path(path: Path) -> Path:
+    """Use the same absolute Chroma identifier as application startup."""
+    if path in (Path("data/index"), Path("data/dev_index")):
+        path = Path(__file__).resolve().parents[1] / path
+    return path.resolve()
+
+
 QUERY_FIELDS = (
     "symptoms",
     "duration",
@@ -319,7 +326,7 @@ def retrieve(
     if client is None:
         import chromadb
 
-        client = chromadb.PersistentClient(path=str(persist_dir))
+        client = chromadb.PersistentClient(path=str(_index_path(persist_dir)))
     collection = client.get_collection(collection_name)
     cards_by_id = dict(cards) if cards is not None else _default_cards(persist_dir)
     base_query = patient_query(patient) or "clinical protocol evidence"
@@ -546,7 +553,7 @@ def _resources(persist_dir: str, model_name: str):
     from sentence_transformers import SentenceTransformer
     import chromadb
     model = SentenceTransformer(model_name)
-    collection = chromadb.PersistentClient(path=persist_dir).get_collection(
+    collection = chromadb.PersistentClient(path=str(_index_path(Path(persist_dir)))).get_collection(
         "clinical_cards_dev" if Path(persist_dir).name == "dev_index" else "clinical_cards"
     )
     return model, collection

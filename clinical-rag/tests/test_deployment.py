@@ -44,3 +44,36 @@ def test_index_initialization(tmp_path, monkeypatch, state):
         builder.assert_not_called()
     else:
         builder.assert_called_once_with(tmp_path / 'data' / 'cards.jsonl', tmp_path / 'data' / 'index', client=client)
+
+
+def test_default_index_is_independent_of_working_directory(tmp_path, monkeypatch):
+    import retrieve
+    monkeypatch.chdir(tmp_path)
+    expected = deployment.Path(retrieve.__file__).resolve().parents[1] / 'data' / 'index'
+    assert retrieve._index_path(deployment.Path('data/index')) == expected
+    assert retrieve._index_path(expected) == expected
+
+
+def test_real_chroma_startup_collection_opens_through_retriever(tmp_path, monkeypatch):
+    # Real persistence/client handles, synthetic vectors: no network or LLM.
+    import shutil
+    import retrieve
+    from build_index import load_cards
+    source = deployment.Path(__file__).resolve().parents[1] / 'data' / 'cards.jsonl'
+    (tmp_path / 'data').mkdir()
+    shutil.copyfile(source, tmp_path / 'data' / 'cards.jsonl')
+    class Embedder:
+        def __init__(self, name): pass
+        def encode(self, texts):
+            return [[1.0, 0.5, 0.1] for _ in texts]
+    monkeypatch.setitem(sys.modules, 'sentence_transformers', SimpleNamespace(SentenceTransformer=Embedder))
+    assert deployment.ensure_index(tmp_path) == 108
+    monkeypatch.chdir(tmp_path)
+    retrieve._resources.cache_clear()
+    relative = deployment.Path('data') / '..' / 'data' / 'index'
+    cards = {c.card_id: c for c in load_cards(source)}
+    engine = retrieve.Retriever(relative, cards=cards)
+    assert engine.collection.count() == 108
+    absolute = retrieve.Retriever(tmp_path / 'data' / 'index', cards=cards)
+    assert absolute.collection.id == engine.collection.id
+    retrieve._resources.cache_clear()
