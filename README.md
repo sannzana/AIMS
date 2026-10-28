@@ -1,8 +1,49 @@
-# AIMS — Clinical NLP + RAG Prototype
+# AIMScribe : Detect & Treat
 
 A Streamlit prototype that retrieves source-backed clinical cards and presents diagnosis candidates, investigations, treatment, and advice. It includes **Baseline** and **Improved** modes using the same card corpus and configured language model.
 
 **Educational prototype only. Outputs are not confirmed diagnoses or medical advice and require qualified clinician review. Use fictional patient information for demonstrations.**
+
+## Try the app — live demo, videos, and test inputs
+
+> **[OPEN THE LIVE APP](https://aimsdetectandtreat.streamlit.app/)**  
+> **[WATCH THE DEMOS / OPEN SUPPORTING FILES](https://drive.google.com/drive/folders/1ctOi14mxEbI6K1ySZo0Mj0V1tf9wQPxc?usp=sharing)**
+
+The Google Drive folder includes **Improved and Baseline showcase videos** and
+an **input list for testing the app**, along with supporting reference files.
+The videos demonstrate input entry, output review, and differences between the
+two modes. Open the folder above to select a video or document.
+
+| Resource | Link |
+| --- | --- |
+| Hosted interface — no local installation | [Launch AIMScribe](https://aimsdetectandtreat.streamlit.app/) |
+| Improved and Baseline videos; input list and supporting files | [Google Drive folder](https://drive.google.com/drive/folders/1ctOi14mxEbI6K1ySZo0Mj0V1tf9wQPxc?usp=sharing) |
+| Six test cases, app-labelled inputs, and expected results | [Editable Word document](docs/evaluation/Six_Tested_Cases_Expected_Results.docx) |
+| Six patient inputs in machine-readable format | [Input JSON](docs/evaluation/Six_Tested_Cases_Inputs.json) |
+| Recorded Improved outputs and Q/A-based changes | [Improved results — Word](docs/evaluation/Improved_Observed_Outputs_and_QA.docx) |
+| Recorded Baseline outputs, aligned by case number | [Baseline results — Word](docs/evaluation/Baseline_Observed_Outputs.docx) |
+| Canonical dataset field explanation and reasoning example | [Field guide — Word](docs/dataset/Canonical_Card_Dataset_Field_Guide.docx) |
+| Canonical clinical card dataset | [cards.jsonl](clinical-rag/data/cards.jsonl) |
+| Source code | [sannzana/AIMS — main](https://github.com/sannzana/AIMS/tree/main) |
+
+**Quick use:** Enter patient information in the separate fields → select
+**Baseline** or **Improved** → **Generate recommendation** → in Improved, select
+a working diagnosis if multiple candidates appear → **Generate Treatment &
+Management Plan**. Answer optional management questions and click **Apply
+answers** to reassess guidance. Use **View source doses and tables** to inspect
+original reference material; it is not an automatically approved prescription.
+
+Use the same patient information when comparing modes. For Baseline, use clear
+units and spacing such as **32 years**, **3 days**, or **12 hours**; Improved
+normalizes common age/duration formats. Unavailable fields can remain blank.
+The four output sections are **Diagnosis, Investigations, Treatment, and Advice**.
+
+**Hosted access:** Evaluators do not need to supply an API key. If the app is
+asleep, initial startup may take a few minutes. Availability depends on hosting
+and provider quota. The recorded results are illustrative runs, not clinical
+validation; the result tables note input differences that affect comparison.
+
+**To run locally, follow the installation and configuration steps below.**
 
 ## 1. Requirements
 
