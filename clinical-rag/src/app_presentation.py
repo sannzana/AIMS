@@ -1,5 +1,5 @@
 """App styling and case-specific selection state; no clinical decisions."""
-APP_TITLE = "AIMScribe — Detect & Treat"
+APP_TITLE = "AIMScribe : Detect & Treat"
 
 
 def style(st):
