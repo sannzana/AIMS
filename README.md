@@ -248,6 +248,35 @@ cd clinical-rag
 ..\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
+## Streamlit Community Cloud deployment
+
+Deploy repository `sannzana/AIMS`, branch `main`, entrypoint `clinical-rag/app.py`.
+Choose Python **3.12** in the deployment's advanced settings when available.
+Use the following top-level **Secrets** (TOML), replacing the key privately:
+
+```toml
+LLM_PROVIDER = "api"
+LLM_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+LLM_MODEL = "openai/gpt-oss-20b"
+LLM_API_KEY = "your_actual_groq_api_key"
+LLM_CACHE = "1"
+AIMS_LLM_TIMEOUT_SECONDS = "60"
+```
+
+The app prepares a missing or empty local Chroma collection on startup from the
+supplied verified cards. Existing populated collections are reused, not rebuilt.
+The first startup requires access to download the embedding model and can take
+several minutes. Cloud storage can be recreated after redeployment, so the app
+can rebuild its index when needed. No source PDFs or local `.env` upload is needed.
+For changed cards, explicitly rebuild the index or deploy into fresh storage.
+
+After deploying, test a complete diagnosis and management run, then test the URL
+in a private browser window to confirm evaluator access. A page loading alone
+does not verify model/API access. If startup fails, inspect **Manage app → Logs**;
+if requests return HTTP 429, check the Groq quota. Never submit your API key as
+an evaluator credential. Local setup and manual index-building commands above
+remain supported.
+
 ## 10. Repository layout
 
 ```text

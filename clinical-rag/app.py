@@ -259,6 +259,23 @@ def main() -> None:
         "Diagnoses are not confirmed and every recommendation requires clinician review."
     )
 
+    from deployment import configure_runtime, ensure_index
+    # Community Cloud supplies settings through Secrets; local .env loading is
+    # retained. No clinical processing or model prompts are changed here.
+    try:
+        settings = dict(st.secrets)
+    except FileNotFoundError:
+        settings = {}
+    configure_runtime(ROOT, settings)
+    try:
+        with st.spinner("Preparing local evidence search (first startup may take a few minutes)…"):
+            st.cache_resource(show_spinner=False)(ensure_index)(ROOT)
+    except Exception:
+        st.error("Evidence search could not start. Check deployment logs, model download access, and index storage.")
+        import logging
+        logging.getLogger(__name__).exception("Evidence index startup failed")
+        return
+
     try:
         cards = load_all_cards()
     except (OSError, ValueError, json.JSONDecodeError) as exc:
